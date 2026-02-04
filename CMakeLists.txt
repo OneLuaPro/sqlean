@@ -25,7 +25,7 @@ project(sqlean C)
 
 # Set C99 standard (required for PCRE2 and some sqlean modules)
 set(CMAKE_C_STANDARD 99)
-set(CMAKE_VERBOSE_MAKEFILE OFF)
+set(CMAKE_VERBOSE_MAKEFILE ON)
 if(MSVC)
   # /wd4244: Conversion from 'type1' to 'type2', possible loss of data
   # /wd4267: Conversion from 'size_t' to 'type', possible loss of data
@@ -89,7 +89,12 @@ FetchContent_Declare(
   DOWNLOAD_NO_EXTRACT TRUE
 )
 
-FetchContent_MakeAvailable(sqlite_source xxhash_header windirent_header)
+message(STATUS "Fetching sqlite-amalgamation-${SQLITE_VERSION}.zip ...")
+FetchContent_MakeAvailable(sqlite_source)
+message(STATUS "Fetching xxhash.h ...")
+FetchContent_MakeAvailable(xxhash_header)
+message(STATUS "Fetching windirent.h ...")
+FetchContent_MakeAvailable(windirent_header)
 
 # --- 4. File Distribution (Setup internal structure) ---
 FetchContent_GetProperties(sqlite_source SOURCE_DIR SQLITE_DIR)
@@ -97,17 +102,18 @@ FetchContent_GetProperties(xxhash_header SOURCE_DIR XXHASH_DIR)
 FetchContent_GetProperties(windirent_header SOURCE_DIR WINDIRENT_DIR)
 
 # Ensure src directory exists
-file(MAKE_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/src/crypto")
+set(GENERATED_INCLUDE_DIR "${CMAKE_BINARY_DIR}/generated_inc")
+file(MAKE_DIRECTORY "${GENERATED_INCLUDE_DIR}/crypto")
 
 # Install necessary files to local src folder
-file(INSTALL "${SQLITE_DIR}/sqlite3.h" DESTINATION "${CMAKE_CURRENT_SOURCE_DIR}/src")
-file(INSTALL "${SQLITE_DIR}/sqlite3.c" DESTINATION "${CMAKE_CURRENT_SOURCE_DIR}/src")
-file(INSTALL "${SQLITE_DIR}/sqlite3ext.h" DESTINATION "${CMAKE_CURRENT_SOURCE_DIR}/src")
-file(INSTALL "${WINDIRENT_DIR}/windirent.h" DESTINATION "${CMAKE_CURRENT_SOURCE_DIR}/src")
+file(INSTALL "${SQLITE_DIR}/sqlite3.h"    DESTINATION "${GENERATED_INCLUDE_DIR}")
+file(INSTALL "${SQLITE_DIR}/sqlite3.c"    DESTINATION "${GENERATED_INCLUDE_DIR}")
+file(INSTALL "${SQLITE_DIR}/sqlite3ext.h" DESTINATION "${GENERATED_INCLUDE_DIR}")
+file(INSTALL "${WINDIRENT_DIR}/windirent.h" DESTINATION "${GENERATED_INCLUDE_DIR}")
 
 # Correct naming for xxhash as expected by sqlean
 file(INSTALL "${XXHASH_DIR}/xxhash.h" 
-  DESTINATION "${CMAKE_CURRENT_SOURCE_DIR}/src/crypto"
+  DESTINATION "${GENERATED_INCLUDE_DIR}/crypto"
   RENAME "xxhash.impl.h"
 )
 
@@ -125,10 +131,7 @@ add_definitions(-DSQLITE_ENABLE_MATH_FUNCTIONS)
 add_definitions(-DSQLITE_CORE)
 
 include_directories(src)
-
-if(MSVC)
-  add_compile_options(/W3 /wd4068) # Warning level 3 and ignore unknown pragmas
-endif()
+include_directories("${GENERATED_INCLUDE_DIR}")
 
 # --- 6. Source Collection ---
 # We collect all .c files from all modules to bake them into one .lib
@@ -141,10 +144,10 @@ file(GLOB_RECURSE ALL_SRC
 
 # --- 7. The Static Library Target ---
 # This creates sqlean.lib
-add_library(sqlean STATIC 
-    src/sqlite3.c           # Include SQLite itself
-    src/sqlite3-sqlean.c    # Include sqlean entry point
-    ${ALL_SRC}              # Include all modules
+add_library(sqlean STATIC
+  "${GENERATED_INCLUDE_DIR}/sqlite3.c" # Include SQLite itself
+  src/sqlite3-sqlean.c                 # Include sqlean entry point
+  ${ALL_SRC}                           # Include all modules
 )
 
 # MSVC Forced Include for PCRE2 constants
@@ -157,8 +160,8 @@ install(TARGETS sqlean
 )
 # Install necessary headers for development
 install(FILES 
-    "${CMAKE_CURRENT_SOURCE_DIR}/src/sqlite3.h"
-    "${CMAKE_CURRENT_SOURCE_DIR}/src/sqlite3ext.h"
+    "${GENERATED_INCLUDE_DIR}/sqlite3.h"
+    "${GENERATED_INCLUDE_DIR}/sqlite3ext.h"    
     DESTINATION include
 )
 # Optional: Install sqlean specific entry point header if you created one
