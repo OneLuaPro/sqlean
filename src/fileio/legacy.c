@@ -38,9 +38,14 @@
 #define FILEIO_WIN32_DLL
 #include <direct.h>
 #include <io.h>
-#include "test_windirent.h"
+// header file renamed as of
+// https://github.com/mackyle/sqlite/commit/a45e9fe9551dc56d96206b802dd1bbca74acd5b2
+// #include "test_windirent.h"	// old
+#include "sqlite3.h"		// added due to renaming side effect
+#include "windirent.h"		// new
 #include "windows.h"
-#define dirent DIRENT
+// #define dirent DIRENT	// old
+#define DIRENT struct dirent	// new
 
 #ifndef chmod
 #define chmod _chmod
@@ -1039,145 +1044,147 @@ const char* windirent_getenv(const char* name) {
     }
 }
 
-/*
-** Implementation of the POSIX opendir() function using the MSVCRT.
-*/
-LPDIR opendir(const char* dirname) {
-    struct _finddata_t data;
-    LPDIR dirp = (LPDIR)sqlite3_malloc(sizeof(DIR));
-    SIZE_T namesize = sizeof(data.name) / sizeof(data.name[0]);
+// Now unnecessary as of
+// https://github.com/mackyle/sqlite/commit/a45e9fe9551dc56d96206b802dd1bbca74acd5b2
+/* /\* */
+/* ** Implementation of the POSIX opendir() function using the MSVCRT. */
+/* *\/ */
+/* LPDIR opendir(const char* dirname) { */
+/*     struct _finddata_t data; */
+/*     LPDIR dirp = (LPDIR)sqlite3_malloc(sizeof(DIR)); */
+/*     SIZE_T namesize = sizeof(data.name) / sizeof(data.name[0]); */
 
-    if (dirp == NULL)
-        return NULL;
-    memset(dirp, 0, sizeof(DIR));
+/*     if (dirp == NULL) */
+/*         return NULL; */
+/*     memset(dirp, 0, sizeof(DIR)); */
 
-    /* TODO: Remove this if Unix-style root paths are not used. */
-    if (sqlite3_stricmp(dirname, "/") == 0) {
-        dirname = windirent_getenv("SystemDrive");
-    }
+/*     /\* TODO: Remove this if Unix-style root paths are not used. *\/ */
+/*     if (sqlite3_stricmp(dirname, "/") == 0) { */
+/*         dirname = windirent_getenv("SystemDrive"); */
+/*     } */
 
-    memset(&data, 0, sizeof(struct _finddata_t));
-    _snprintf(data.name, namesize, "%s\\*", dirname);
-    dirp->d_handle = _findfirst(data.name, &data);
+/*     memset(&data, 0, sizeof(struct _finddata_t)); */
+/*     _snprintf(data.name, namesize, "%s\\*", dirname); */
+/*     dirp->d_handle = _findfirst(data.name, &data); */
 
-    if (dirp->d_handle == BAD_INTPTR_T) {
-        closedir(dirp);
-        return NULL;
-    }
+/*     if (dirp->d_handle == BAD_INTPTR_T) { */
+/*         closedir(dirp); */
+/*         return NULL; */
+/*     } */
 
-    /* TODO: Remove this block to allow hidden and/or system files. */
-    if (is_filtered(data)) {
-    next:
+/*     /\* TODO: Remove this block to allow hidden and/or system files. *\/ */
+/*     if (is_filtered(data)) { */
+/*     next: */
 
-        memset(&data, 0, sizeof(struct _finddata_t));
-        if (_findnext(dirp->d_handle, &data) == -1) {
-            closedir(dirp);
-            return NULL;
-        }
+/*         memset(&data, 0, sizeof(struct _finddata_t)); */
+/*         if (_findnext(dirp->d_handle, &data) == -1) { */
+/*             closedir(dirp); */
+/*             return NULL; */
+/*         } */
 
-        /* TODO: Remove this block to allow hidden and/or system files. */
-        if (is_filtered(data))
-            goto next;
-    }
+/*         /\* TODO: Remove this block to allow hidden and/or system files. *\/ */
+/*         if (is_filtered(data)) */
+/*             goto next; */
+/*     } */
 
-    dirp->d_first.d_attributes = data.attrib;
-    strncpy(dirp->d_first.d_name, data.name, NAME_MAX);
-    dirp->d_first.d_name[NAME_MAX] = '\0';
+/*     dirp->d_first.d_attributes = data.attrib; */
+/*     strncpy(dirp->d_first.d_name, data.name, NAME_MAX); */
+/*     dirp->d_first.d_name[NAME_MAX] = '\0'; */
 
-    return dirp;
-}
+/*     return dirp; */
+/* } */
 
-/*
-** Implementation of the POSIX readdir() function using the MSVCRT.
-*/
-LPDIRENT readdir(LPDIR dirp) {
-    struct _finddata_t data;
+/* /\* */
+/* ** Implementation of the POSIX readdir() function using the MSVCRT. */
+/* *\/ */
+/* LPDIRENT readdir(LPDIR dirp) { */
+/*     struct _finddata_t data; */
 
-    if (dirp == NULL)
-        return NULL;
+/*     if (dirp == NULL) */
+/*         return NULL; */
 
-    if (dirp->d_first.d_ino == 0) {
-        dirp->d_first.d_ino++;
-        dirp->d_next.d_ino++;
+/*     if (dirp->d_first.d_ino == 0) { */
+/*         dirp->d_first.d_ino++; */
+/*         dirp->d_next.d_ino++; */
 
-        return &dirp->d_first;
-    }
+/*         return &dirp->d_first; */
+/*     } */
 
-next:
+/* next: */
 
-    memset(&data, 0, sizeof(struct _finddata_t));
-    if (_findnext(dirp->d_handle, &data) == -1)
-        return NULL;
+/*     memset(&data, 0, sizeof(struct _finddata_t)); */
+/*     if (_findnext(dirp->d_handle, &data) == -1) */
+/*         return NULL; */
 
-    /* TODO: Remove this block to allow hidden and/or system files. */
-    if (is_filtered(data))
-        goto next;
+/*     /\* TODO: Remove this block to allow hidden and/or system files. *\/ */
+/*     if (is_filtered(data)) */
+/*         goto next; */
 
-    dirp->d_next.d_ino++;
-    dirp->d_next.d_attributes = data.attrib;
-    strncpy(dirp->d_next.d_name, data.name, NAME_MAX);
-    dirp->d_next.d_name[NAME_MAX] = '\0';
+/*     dirp->d_next.d_ino++; */
+/*     dirp->d_next.d_attributes = data.attrib; */
+/*     strncpy(dirp->d_next.d_name, data.name, NAME_MAX); */
+/*     dirp->d_next.d_name[NAME_MAX] = '\0'; */
 
-    return &dirp->d_next;
-}
+/*     return &dirp->d_next; */
+/* } */
 
-/*
-** Implementation of the POSIX readdir_r() function using the MSVCRT.
-*/
-INT readdir_r(LPDIR dirp, LPDIRENT entry, LPDIRENT* result) {
-    struct _finddata_t data;
+/* /\* */
+/* ** Implementation of the POSIX readdir_r() function using the MSVCRT. */
+/* *\/ */
+/* INT readdir_r(LPDIR dirp, LPDIRENT entry, LPDIRENT* result) { */
+/*     struct _finddata_t data; */
 
-    if (dirp == NULL)
-        return EBADF;
+/*     if (dirp == NULL) */
+/*         return EBADF; */
 
-    if (dirp->d_first.d_ino == 0) {
-        dirp->d_first.d_ino++;
-        dirp->d_next.d_ino++;
+/*     if (dirp->d_first.d_ino == 0) { */
+/*         dirp->d_first.d_ino++; */
+/*         dirp->d_next.d_ino++; */
 
-        entry->d_ino = dirp->d_first.d_ino;
-        entry->d_attributes = dirp->d_first.d_attributes;
-        strncpy(entry->d_name, dirp->d_first.d_name, NAME_MAX);
-        entry->d_name[NAME_MAX] = '\0';
+/*         entry->d_ino = dirp->d_first.d_ino; */
+/*         entry->d_attributes = dirp->d_first.d_attributes; */
+/*         strncpy(entry->d_name, dirp->d_first.d_name, NAME_MAX); */
+/*         entry->d_name[NAME_MAX] = '\0'; */
 
-        *result = entry;
-        return 0;
-    }
+/*         *result = entry; */
+/*         return 0; */
+/*     } */
 
-next:
+/* next: */
 
-    memset(&data, 0, sizeof(struct _finddata_t));
-    if (_findnext(dirp->d_handle, &data) == -1) {
-        *result = NULL;
-        return ENOENT;
-    }
+/*     memset(&data, 0, sizeof(struct _finddata_t)); */
+/*     if (_findnext(dirp->d_handle, &data) == -1) { */
+/*         *result = NULL; */
+/*         return ENOENT; */
+/*     } */
 
-    /* TODO: Remove this block to allow hidden and/or system files. */
-    if (is_filtered(data))
-        goto next;
+/*     /\* TODO: Remove this block to allow hidden and/or system files. *\/ */
+/*     if (is_filtered(data)) */
+/*         goto next; */
 
-    entry->d_ino = (ino_t)-1; /* not available */
-    entry->d_attributes = data.attrib;
-    strncpy(entry->d_name, data.name, NAME_MAX);
-    entry->d_name[NAME_MAX] = '\0';
+/*     entry->d_ino = (ino_t)-1; /\* not available *\/ */
+/*     entry->d_attributes = data.attrib; */
+/*     strncpy(entry->d_name, data.name, NAME_MAX); */
+/*     entry->d_name[NAME_MAX] = '\0'; */
 
-    *result = entry;
-    return 0;
-}
+/*     *result = entry; */
+/*     return 0; */
+/* } */
 
-/*
-** Implementation of the POSIX closedir() function using the MSVCRT.
-*/
-INT closedir(LPDIR dirp) {
-    INT result = 0;
+/* /\* */
+/* ** Implementation of the POSIX closedir() function using the MSVCRT. */
+/* *\/ */
+/* INT closedir(LPDIR dirp) { */
+/*     INT result = 0; */
 
-    if (dirp == NULL)
-        return EINVAL;
+/*     if (dirp == NULL) */
+/*         return EINVAL; */
 
-    if (dirp->d_handle != NULL_INTPTR_T && dirp->d_handle != BAD_INTPTR_T) {
-        result = _findclose(dirp->d_handle);
-    }
+/*     if (dirp->d_handle != NULL_INTPTR_T && dirp->d_handle != BAD_INTPTR_T) { */
+/*         result = _findclose(dirp->d_handle); */
+/*     } */
 
-    sqlite3_free(dirp);
-    return result;
-}
+/*     sqlite3_free(dirp); */
+/*     return result; */
+/* } */
 #endif

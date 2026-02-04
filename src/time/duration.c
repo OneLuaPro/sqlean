@@ -12,12 +12,23 @@
 #include "time/timex.h"
 
 // Common durations.
+#ifdef _MSC_VER
+// MSVC requires literal constants for global initialization.
+// We use the LL suffix to ensure 64-bit integer literals.
+const Duration Nanosecond  = 1LL;
+const Duration Microsecond = 1000LL;
+const Duration Millisecond = 1000000LL;
+const Duration Second      = 1000000000LL;
+const Duration Minute      = 60000000000LL;
+const Duration Hour        = 3600000000000LL;
+#else
 const Duration Nanosecond = 1;
 const Duration Microsecond = 1000 * Nanosecond;
 const Duration Millisecond = 1000 * Microsecond;
 const Duration Second = 1000 * Millisecond;
 const Duration Minute = 60 * Second;
 const Duration Hour = 60 * Minute;
+#endif
 
 #pragma region Conversion
 

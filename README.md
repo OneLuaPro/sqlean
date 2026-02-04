@@ -1,5 +1,7 @@
 # All the missing SQLite functions
 
+**Note**: This fork of `sqlean` is designed for `CMake` building on Windows with MSVC.
+
 SQLite has few functions compared to other database management systems. SQLite authors see this as a feature rather than a problem, because SQLite has an extension mechanism in place.
 
 There are a lot of SQLite extensions out there, but they are incomplete, inconsistent and scattered across the internet. Sqlean brings them together, neatly packaged into domain modules, documented, tested, and built for Linux, Windows and macOS.
