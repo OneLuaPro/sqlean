@@ -48,11 +48,11 @@ __declspec(dllexport)
     math_init(db);
     regexp_init(db);
     stats_init(db);
+    unicode_init(db);
     text_init(db);
 #if !defined(_WIN32) || defined(_WIN64)
     time_init(db);
 #endif
-    unicode_init(db);
     uuid_init(db);
     vsv_init(db);
     return SQLITE_OK;

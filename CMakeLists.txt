@@ -101,6 +101,18 @@ FetchContent_GetProperties(sqlite_source SOURCE_DIR SQLITE_DIR)
 FetchContent_GetProperties(xxhash_header SOURCE_DIR XXHASH_DIR)
 FetchContent_GetProperties(windirent_header SOURCE_DIR WINDIRENT_DIR)
 
+# Patch prevents windirent.h from ignoring hidden or system files - we need this for
+# proper busted testing on lsqlite3 side.
+execute_process(
+  COMMAND ${GIT_EXECUTABLE} apply -p0 --whitespace=fix --reject
+  "${CMAKE_CURRENT_SOURCE_DIR}/src/patches/windirent_no_filter.patch"
+  WORKING_DIRECTORY "${WINDIRENT_DIR}"
+  RESULT_VARIABLE PATCH_RESULT
+)
+if(NOT PATCH_RESULT EQUAL 0)
+    message(FATAL_ERROR "Patching windirent.h failed or was already applied.")
+endif()
+
 # Ensure src directory exists
 set(GENERATED_INCLUDE_DIR "${CMAKE_BINARY_DIR}/generated_inc")
 file(MAKE_DIRECTORY "${GENERATED_INCLUDE_DIR}/crypto")

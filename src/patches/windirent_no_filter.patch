@@ -1,0 +1,14 @@
+--- windirent.h
++++ windirent.h
+@@ -65,9 +65,9 @@
+   struct dirent cur;         /* Current entry */
+ };
+ 
+-/* Ignore hidden and system files */
++/* Don't ignore hidden and system files */
+ #define WindowsFileToIgnore(a) \
+-    ((((a).attrib)&_A_HIDDEN) || (((a).attrib)&_A_SYSTEM))
++    (0)
+ 
+ /*
+ ** Close a previously opened directory
