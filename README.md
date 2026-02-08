@@ -41,7 +41,7 @@ The single-file `sqlean` bundle contains all extensions from the main set.
 
 The scope of this project is limited to extensions without external dependencies (other than the C standard library and SQLite itself).
 
-There are a lot of useful extensions that do not quite fit the scope for various reasons. To learn more about them, visit the [SQLite extension hub](https://sqlpkg.org/).
+There are a lot of useful extensions that do not quite fit the scope for various reasons — so you won't find them here.
 
 ## Downloading
 
@@ -53,15 +53,11 @@ There are [precompiled binaries](https://github.com/nalgeon/sqlean/releases/late
 -   `sqlean-macos-x64.zip` - Intel-based macOS
 -   `sqlean-macos-arm64.zip` - Apple silicon (ARM-based) macOS
 
-Binaries are 64-bit and require a 64-bit SQLite version. If you are using SQLite shell on Windows (`sqlite.exe`), its 64-bit version is available at https://github.com/nalgeon/sqlite.
-
-Other extensions are available for download from [sqlpkg.org](https://sqlpkg.org/).
+Binaries are 64-bit and require a 64-bit SQLite version.
 
 ## Installation and usage
 
-The easiest way to try out Sqlean extensions is to use the [pre-bundled shell](docs/shell.md). But you can also load them individually.
-
-For example, using the SQLite command-line interface:
+The easiest way to try out Sqlean extensions is to load them in the SQLite command-line interface:
 
 ```
 sqlite> .load ./sqlean

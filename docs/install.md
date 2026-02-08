@@ -1,11 +1,8 @@
 # How to install an extension
 
-The easiest way to try out Sqlean extensions is to use the [pre-bundled shell](shell.md). But if you prefer to use the standard SQLite shell, IDEs or software APIs — read on.
-
 Examples below use the `stats` extension; you can specify any other supported extension. To load all extensions at once, use the single-file `sqlean` bundle.
 
--   [Download: Manually](#download-manually)
--   [Download: Package manager](#download-package-manager)
+-   [Download](#download)
 -   [Install: Command-line interface](#install-command-line-interface)
 -   [Install: GUI database browser](#install-gui-database-browser)
 -   [Install: rqlite](#install-rqlite)
@@ -14,7 +11,7 @@ Examples below use the `stats` extension; you can specify any other supported ex
 -   [Install: Browser JavaScript](#install-browser-javascript)
 -   [Install: Go](#install-go)
 
-## Download: Manually
+## Download
 
 There are [precompiled binaries](https://github.com/nalgeon/sqlean/releases/latest) for every OS:
 
@@ -24,34 +21,7 @@ There are [precompiled binaries](https://github.com/nalgeon/sqlean/releases/late
 -   `sqlean-macos-x64.zip` - Intel-based macOS
 -   `sqlean-macos-arm64.zip` - Apple silicon (ARM-based) macOS
 
-Binaries are 64-bit and require a 64-bit SQLite version. If you are using SQLite shell on Windows (`sqlite.exe`), its 64-bit version is available at https://github.com/nalgeon/sqlite.
-
-Other extensions are available for download from [sqlpkg.org](https://sqlpkg.org/).
-
-## Download: Package manager
-
-Personally, I'm not a fan of managing the extensions manually. I always tend to put them in different places and can't find them later. So I created [`sqlpkg`](https://github.com/nalgeon/sqlpkg-cli) — a package manager for SQLite extensions.
-
-Use the `install` command to download the extension with `sqlpkg`:
-
-```
-sqlpkg install nalgeon/stats
-```
-
-`nalgeon/stats` is the ID of the extension, you can find it in the [package registry](https://sqlpkg.org/). Check it out — it has plenty of extensions!
-
-`sqlpkg` installs all extensions in the special folder:
-
--   `%USERPROFILE%\.sqlpkg` on Windows
--   `~/.sqlpkg` on Linux/macOS
-
-So for our `nalgeon/stats` extension it will be:
-
--   `C:\Users\anton\.sqlpkg\nalgeon\stats\stats.dll` on Windows
--   `/home/anton/.sqlpkg/nalgeon/stats/stats.so` on Linux
--   `/Users/anton/.sqlpkg/nalgeon/stats/stats.dylib` on macOS
-
-Be sure to change the path accordingly in the examples below.
+Binaries are 64-bit and require a 64-bit SQLite version.
 
 ## Install: Command-line interface
 
@@ -83,7 +53,7 @@ select median(value) from generate_series(1, 99);
 xattr -d com.apple.quarantine /Users/anton/Downloads/stats.dylib
 ```
 
-Also note that the "stock" SQLite CLI on macOS does not support extensions. Use the [custom build](https://github.com/nalgeon/sqlite).
+Also note that the "stock" SQLite CLI on macOS might not support extensions.
 
 ## Install: GUI database browser
 
@@ -106,7 +76,7 @@ select load_extension('/Users/anton/Downloads/stats');
 To load extensions in [rqlite](https://www.rqlite.io), first download a suitable release (x64 for Linux is demonstrated below):
 
 ```bash
-curl -L https://github.com/nalgeon/sqlean/releases/download/0.28.0/sqlean-linux-x64.zip -o sqlean.zip
+curl -L https://github.com/nalgeon/sqlean/releases/latest/download/sqlean-linux-x64.zip -o sqlean.zip
 ```
 
 Then pass the zipfile to rqlite when you start the rqlite node:
