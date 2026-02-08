@@ -103,14 +103,29 @@ FetchContent_GetProperties(windirent_header SOURCE_DIR WINDIRENT_DIR)
 
 # Patch prevents windirent.h from ignoring hidden or system files - we need this for
 # proper busted testing on lsqlite3 side.
+set(PATCH_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/patches/windirent_no_filter.patch")
+# Check if the patch can be applied REVERSED.
+# If this succeeds, it means the patch is already present in the files.
 execute_process(
-  COMMAND ${GIT_EXECUTABLE} apply -p0 --whitespace=fix --reject
-  "${CMAKE_CURRENT_SOURCE_DIR}/src/patches/windirent_no_filter.patch"
+  COMMAND ${GIT_EXECUTABLE} apply -p0 --reverse --check "${PATCH_FILE}"
   WORKING_DIRECTORY "${WINDIRENT_DIR}"
-  RESULT_VARIABLE PATCH_RESULT
+  RESULT_VARIABLE PATCH_ALREADY_APPLIED
+  OUTPUT_QUIET
+  ERROR_QUIET
 )
-if(NOT PATCH_RESULT EQUAL 0)
-    message(FATAL_ERROR "Patching windirent.h failed or was already applied.")
+if(NOT PATCH_ALREADY_APPLIED EQUAL 0)
+  # If it's NOT already applied, try to apply it normally.
+  message(STATUS "Applying windirent.h patch...")
+  execute_process(
+    COMMAND ${GIT_EXECUTABLE} apply -p0 --whitespace=fix "${PATCH_FILE}"
+    WORKING_DIRECTORY "${WINDIRENT_DIR}"
+    RESULT_VARIABLE PATCH_RESULT
+  )
+  if(NOT PATCH_RESULT EQUAL 0)
+    message(FATAL_ERROR "Patching windirent.h failed!")
+  endif()
+else()
+  message(STATUS "Patch for windirent.h already applied, skipping.")
 endif()
 
 # Ensure src directory exists
