@@ -193,3 +193,56 @@ install(FILES
 )
 # Optional: Install sqlean specific entry point header if you created one
 # install(FILES "${CMAKE_CURRENT_SOURCE_DIR}/src/sqlite3-sqlean.h" DESTINATION include)
+
+# --- 9. Documentation Build Target (Pandoc) ---
+find_program(PANDOC_EXECUTABLE pandoc DOC "Path to pandoc executable")
+if(PANDOC_EXECUTABLE)
+  # Collect all markdown files from the docs directory
+  # file(GLOB DOC_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/docs/*.md")
+  set(DOC_SOURCES 
+    "${CMAKE_CURRENT_SOURCE_DIR}/docs/crypto.md" 
+    "${CMAKE_CURRENT_SOURCE_DIR}/docs/define.md" 
+    "${CMAKE_CURRENT_SOURCE_DIR}/docs/fileio.md" 
+    "${CMAKE_CURRENT_SOURCE_DIR}/docs/fuzzy.md"
+    "${CMAKE_CURRENT_SOURCE_DIR}/docs/ipaddr.md"
+    "${CMAKE_CURRENT_SOURCE_DIR}/docs/math.md"
+    "${CMAKE_CURRENT_SOURCE_DIR}/docs/regexp.md"
+    "${CMAKE_CURRENT_SOURCE_DIR}/docs/stats.md"
+    "${CMAKE_CURRENT_SOURCE_DIR}/docs/text.md"
+    "${CMAKE_CURRENT_SOURCE_DIR}/docs/time.md"
+    "${CMAKE_CURRENT_SOURCE_DIR}/docs/uuid.md"
+    "${CMAKE_CURRENT_SOURCE_DIR}/docs/vsv.md"
+  )
+    
+  # Define the output path in the build directory
+  set(DOC_OUTPUT_HTML "${PROJECT_BINARY_DIR}/sqlean.html")
+    
+  # Define paths to the required styling components
+  set(DOC_CSS "${CMAKE_CURRENT_SOURCE_DIR}/docs/github-markdown.css")
+  set(DOC_HEADER "${CMAKE_CURRENT_SOURCE_DIR}/docs/header.html")
+  set(DOC_FOOTER "${CMAKE_CURRENT_SOURCE_DIR}/docs/footer.html")
+
+  add_custom_target(docs
+    COMMAND ${PANDOC_EXECUTABLE} 
+    ${DOC_SOURCES} 
+    -s 
+    --toc 
+    --embed-resources 
+    --metadata title=Sqlean
+    --css "${DOC_CSS}" 
+    -H "${DOC_HEADER}" 
+    -A "${DOC_FOOTER}" 
+    -o "${DOC_OUTPUT_HTML}"
+    # Ensure the target is rebuilt if any source or style file changes
+    DEPENDS ${DOC_SOURCES} "${DOC_CSS}" "${DOC_HEADER}" "${DOC_FOOTER}"
+    WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
+    COMMENT "Generating bundled GitHub-style HTML documentation..."
+    VERBATIM
+  )
+  add_dependencies(sqlean docs)
+
+  # Make the documentation part of the installation process
+  install(FILES "${DOC_OUTPUT_HTML}" DESTINATION "${INSTALL_DOCDIR}" OPTIONAL)
+else()
+  message(FATAL_ERROR "Pandoc not found - documentation target 'docs' will not be created.")
+endif()
