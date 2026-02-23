@@ -29,7 +29,14 @@ set(CMAKE_VERBOSE_MAKEFILE ON)
 if(MSVC)
   # /wd4244: Conversion from 'type1' to 'type2', possible loss of data
   # /wd4267: Conversion from 'size_t' to 'type', possible loss of data
-  add_compile_options(/W3 /wd4068 /wd4244 /wd4267) 
+  add_compile_options(/W3 /wd4068 /wd4244 /wd4267)
+  if(CMAKE_C_COMPILER_ID MATCHES "IntelLLVM")
+    add_compile_options(
+      -Wno-unused-variable
+      -Wno-unused-but-set-variable
+      -Wno-unused-function
+    )
+  endif()
 endif()
 include (GNUInstallDirs)
 set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${PROJECT_BINARY_DIR}/${CMAKE_INSTALL_LIBDIR})
