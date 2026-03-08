@@ -57,8 +57,8 @@ set(INSTALL_DATAROOTDIR
 
 # --- 1. Versioning & Variables ---
 set(SQLITE_RELEASE_YEAR "2026")
-set(SQLITE_VERSION "3510200") # Version 3.51.2
-set(SQLITE_BRANCH "3.51")
+set(SQLITE_VERSION "3520000") # Version 3.52.0
+# set(SQLITE_BRANCH "3.51")
 
 # --- 2. SQLEAN_VERSION via Git ---
 find_package(Git)
@@ -92,7 +92,7 @@ FetchContent_Declare(
 )
 FetchContent_Declare(
   windirent_header 
-  URL "https://github.com/mackyle/sqlite/raw/branch-${SQLITE_BRANCH}/ext/misc/windirent.h" 
+  URL "https://raw.githubusercontent.com/mackyle/sqlite/master/ext/misc/windirent.h"
   DOWNLOAD_NO_EXTRACT TRUE
 )
 
