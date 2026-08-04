@@ -10,59 +10,6 @@
 
 #include "text/utf8/utf8.h"
 
-static void test_len(void) {
-    printf("test_len...");
-    const char* s = "Hello, 世界!";
-    assert(utf8_len(s, strlen(s)) == 10);
-    printf("OK\n");
-}
-
-static void test_peek(void) {
-    printf("test_peek...");
-    const char* s = "Hello, 世界!";
-    assert(utf8_peek(s) == 'H');
-    assert(utf8_peek(s + 2) == 'l');
-    assert(utf8_peek(s + 4) == 'o');
-    assert(utf8_peek(s + 6) == ' ');
-    assert(utf8_peek(s + 7) == 0x4E16);
-    assert(utf8_peek(s + 10) == 0x754c);
-    assert(utf8_peek(s + 13) == '!');
-    printf("OK\n");
-}
-
-static void test_peek_at(void) {
-    printf("test_peek_at...");
-    const char* s = "Hello, 世界!";
-    size_t n = strlen(s);
-    assert(utf8_peek_at(s, n, 0) == 'H');
-    assert(utf8_peek_at(s, n, 2) == 'l');
-    assert(utf8_peek_at(s, n, 4) == 'o');
-    assert(utf8_peek_at(s, n, 6) == ' ');
-    assert(utf8_peek_at(s, n, 7) == 0x4E16);
-    assert(utf8_peek_at(s, n, 8) == 0x754C);
-    assert(utf8_peek_at(s, n, 9) == '!');
-    // bounded by n alone: an exact-sized unterminated allocation
-    // must never be read past n, even while looking for codepoint 0
-    {
-        const char* lit = "A\xe4\xb8\x96";
-        size_t len = strlen(lit);
-        char* t = malloc(len);
-        assert(t != NULL);
-        memcpy(t, lit, len);
-        assert(utf8_peek_at(t, 1, 0) == 'A');
-        assert(utf8_peek_at(t, len, 1) == 0x4E16);
-        // a shorter n truncates the sequence instead of reading past it
-        assert(utf8_peek_at(t, 3, 1) == 0xFFFD);
-        // past the end there is no codepoint
-        assert(utf8_peek_at(t, len, 2) == 0);
-        free(t);
-    }
-    // invalid bytes index as their replacement characters
-    assert(utf8_peek_at("\x80\x80" "ab", 4, 1) == 0xFFFD);
-    assert(utf8_peek_at("\x80\x80" "ab", 4, 2) == 'a');
-    printf("OK\n");
-}
-
 static void test_icmp(void) {
     printf("test_icmp...");
     {
@@ -177,13 +124,6 @@ static void test_icmp_invalid(void) {
     printf("OK\n");
 }
 
-static void test_valid(void) {
-    printf("test_valid...");
-    const char* s = "Hello, 世界!";
-    assert(utf8_valid(s, strlen(s)));
-    printf("OK\n");
-}
-
 // check_case converts src using fn and asserts the result equals want.
 static void check_case(bool (*fn)(const char*, size_t, char*, size_t, size_t*),
                        const char* src,
@@ -280,13 +220,9 @@ static void test_case_invalid(void) {
 }
 
 int main(void) {
-    test_len();
-    test_peek();
-    test_peek_at();
     test_icmp();
     test_icmp_invalid();
     test_next();
-    test_valid();
     test_tolower();
     test_toupper();
     test_totitle();

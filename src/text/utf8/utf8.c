@@ -23,10 +23,7 @@
 
 // UTF-8 string handling.
 
-#include <ctype.h>
-#include <stdbool.h>
 #include <stdint.h>
-#include <string.h>
 
 #include "text/utf8/rune.h"
 #include "text/utf8/utf8.h"
@@ -88,28 +85,6 @@ int utf8_encode(char* out, uint32_t c) {
 
 // String functions.
 
-// utf8_at returns a pointer to the utf8 codepoint at index in s.
-const char* utf8_at(const char* s, size_t n, size_t index) {
-    while ((index > 0) & (*s != 0) & (n-- != 0)) {
-        index -= (*++s & 0xC0) != 0x80;
-    }
-    return s;
-}
-
-// utf8_pos returns the byte position of the utf8 codepoint at index in s.
-size_t utf8_pos(const char* s, size_t n, size_t index) {
-    return (size_t)(utf8_at(s, n, index) - s);
-}
-
-// utf8_len returns the number of utf8 codepoints in s.
-size_t utf8_len(const char* s, size_t n) {
-    size_t size = 0;
-    while ((n-- != 0) & (*s != 0)) {
-        size += (*++s & 0xC0) != 0x80;
-    }
-    return size;
-}
-
 // UTF8_REJECT is the decoder state after a byte that cannot appear in a valid
 // utf8 sequence at that position. The reject state is sticky: feeding the
 // decoder more bytes never gets it out, so a loop waiting for the accept
@@ -144,22 +119,6 @@ uint32_t utf8_next(const char* s, size_t n, size_t* i) {
     return 0xFFFD;
 }
 
-// utf8_peek returns the utf8 codepoint at the start of s.
-uint32_t utf8_peek(const char* s) {
-    // a utf8 sequence is at most 4 bytes, so that is all we need of s
-    size_t i = 0;
-    return utf8_next(s, strnlen(s, 4), &i);
-}
-
-// utf8_peek_at returns the utf8 codepoint at the index pos from s.
-uint32_t utf8_peek_at(const char* s, size_t n, size_t pos) {
-    size_t i = 0;
-    while (pos-- > 0 && i < n) {
-        utf8_next(s, n, &i);
-    }
-    return utf8_next(s, n, &i);
-}
-
 // utf8_icmp compares the utf8 strings s1 and s2 case-insensitively.
 int utf8_icmp(const char* s1, size_t n1, const char* s2, size_t n2) {
     size_t j1 = 0, j2 = 0;
@@ -175,13 +134,4 @@ int utf8_icmp(const char* s1, size_t n1, const char* s2, size_t n2) {
     // width (ſ is two bytes but folds to the one-byte s), so equal decoded
     // streams can have unequal byte lengths
     return (j1 < n1) - (j2 < n2);
-}
-
-// utf8_valid returns true if s is a valid utf8 string.
-bool utf8_valid(const char* s, size_t n) {
-    utf8_decode_t d = {.state = 0};
-    while ((n-- != 0) & (*s != 0)) {
-        utf8_decode(&d, (uint8_t)*s++);
-    }
-    return d.state == 0;
 }
