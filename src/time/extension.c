@@ -698,9 +698,18 @@ static void fn_format(sqlite3_context* context, int argc, sqlite3_value** argv) 
 // time_parse(v)
 static void fn_parse(sqlite3_context* context, int argc, sqlite3_value** argv) {
     assert(argc == 1);
+    if (sqlite3_value_type(argv[0]) == SQLITE_NULL) {
+        sqlite3_result_null(context);
+        return;
+    }
     const char* val = (const char*)sqlite3_value_text(argv[0]);
-    Time t = time_parse(val);
-    result_blob(context, t);
+    int nbytes = sqlite3_value_bytes(argv[0]);
+    if (val == NULL || strlen(val) != (size_t)nbytes) {
+        // time_parse accepts NUL-terminated strings, so embedded NUL bytes are invalid.
+        result_blob(context, (Time){0, 0});
+        return;
+    }
+    result_blob(context, time_parse(val));
 }
 
 // dur_h(), dur_m(), dur_s(), dur_ms(), dur_us(), dur_ns()
