@@ -188,16 +188,16 @@ select '51_05', time_trunc(time_unix(1321631795, 666777888), 'quarter') = time_d
 select '51_06', time_trunc(time_unix(1321631795, 666777888), 'month') = time_date(2011, 11, 1);
 -- week truncates to the Monday of the current ISO week (2011-11-18 was a Friday)
 select '51_07', time_trunc(time_unix(1321631795, 666777888), 'week') = time_date(2011, 11, 14);
-select '51_07a', time_trunc(time_date(2023, 1, 4), 'week') = time_date(2023, 1, 2);
-select '51_07b', time_trunc(time_date(2023, 1, 1), 'week') = time_date(2022, 12, 26);
-select '51_07c', time_trunc(time_date(2024, 3, 13), 'week') = time_date(2024, 3, 11);
-select '51_07d', time_trunc(time_date(2023, 12, 31), 'week') = time_date(2023, 12, 25);
-select '51_08', time_trunc(time_unix(1321631795, 666777888), 'day') = time_date(2011, 11, 18);
-select '51_09', time_trunc(time_unix(1321631795, 666777888), 'hour') = time_date(2011, 11, 18, 15, 0, 0);
-select '51_10', time_trunc(time_unix(1321631795, 666777888), 'minute') = time_date(2011, 11, 18, 15, 56, 0);
-select '51_11', time_trunc(time_unix(1321631795, 666777888), 'second') = time_date(2011, 11, 18, 15, 56, 35);
-select '51_12', time_trunc(time_unix(1321631795, 666777888), 'milli') = time_date(2011, 11, 18, 15, 56, 35, 666000000);
-select '51_13', time_trunc(time_unix(1321631795, 666777888), 'micro') = time_date(2011, 11, 18, 15, 56, 35, 666777000);
+select '51_08', time_trunc(time_date(2023, 1, 4), 'week') = time_date(2023, 1, 2);
+select '51_09', time_trunc(time_date(2023, 1, 1), 'week') = time_date(2022, 12, 26);
+select '51_10', time_trunc(time_date(2024, 3, 13), 'week') = time_date(2024, 3, 11);
+select '51_11', time_trunc(time_date(2023, 12, 31), 'week') = time_date(2023, 12, 25);
+select '51_12', time_trunc(time_unix(1321631795, 666777888), 'day') = time_date(2011, 11, 18);
+select '51_13', time_trunc(time_unix(1321631795, 666777888), 'hour') = time_date(2011, 11, 18, 15, 0, 0);
+select '51_14', time_trunc(time_unix(1321631795, 666777888), 'minute') = time_date(2011, 11, 18, 15, 56, 0);
+select '51_15', time_trunc(time_unix(1321631795, 666777888), 'second') = time_date(2011, 11, 18, 15, 56, 35);
+select '51_16', time_trunc(time_unix(1321631795, 666777888), 'milli') = time_date(2011, 11, 18, 15, 56, 35, 666000000);
+select '51_17', time_trunc(time_unix(1321631795, 666777888), 'micro') = time_date(2011, 11, 18, 15, 56, 35, 666777000);
 
 -- truncate to custom duration
 -- 2011-11-18 15:56:35.666777888
@@ -247,8 +247,8 @@ select '62_08', time_fmt_datetime(time_unix(1321631795, 0), -3*3600-30*60) = '20
 -- 2011-11-18 15:56:35.666777888
 select '63_01', time_fmt_date(time_unix(1321631795, 666777888)) = '2011-11-18';
 select '63_02', time_fmt_date(time_unix(1321631795, 0)) = '2011-11-18';
-select '62_04', time_fmt_date(time_unix(1321631795, 0), 12*3600) = '2011-11-19';
-select '62_05', time_fmt_date(time_unix(1321631795, 0), -12*3600) = '2011-11-18';
+select '63_03', time_fmt_date(time_unix(1321631795, 0), 12*3600) = '2011-11-19';
+select '63_04', time_fmt_date(time_unix(1321631795, 0), -12*3600) = '2011-11-18';
 
 -- time_fmt_time
 -- 2011-11-18 15:56:35.666777888

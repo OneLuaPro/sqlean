@@ -407,7 +407,7 @@ time_to_milli(t)
 
 Returns t as a Unix time, the number of milliseconds elapsed since January 1, 1970 UTC.
 
-The result is undefined if the Unix time in milliseconds cannot be represented by a 64-bit integer (a date more than 292 million years before or after 1970).
+The result wraps around modulo 2⁶⁴ if the Unix time in milliseconds cannot be represented by a 64-bit integer (a date more than 292 million years before or after 1970).
 
 ```sql
 select time_to_milli(time_now());
@@ -422,7 +422,7 @@ time_to_micro(t)
 
 Returns t as a Unix time, the number of microseconds elapsed since January 1, 1970 UTC.
 
-The result is undefined if the Unix time in microseconds cannot be represented by a 64-bit integer (a date before year -290307 or after year 294246).
+The result wraps around modulo 2⁶⁴ if the Unix time in microseconds cannot be represented by a 64-bit integer (a date before year -290307 or after year 294246).
 
 ```sql
 select time_to_micro(time_now());
@@ -437,7 +437,7 @@ time_to_nano(t)
 
 Returns t as a Unix time, the number of nanoseconds elapsed since January 1, 1970 UTC.
 
-The result is undefined if the Unix time in nanoseconds cannot be represented by a 64-bit integer (a date before the year 1678 or after 2262).
+The result wraps around modulo 2⁶⁴ if the Unix time in nanoseconds cannot be represented by a 64-bit integer (a date before the year 1678 or after 2262).
 
 ```sql
 select time_to_nano(time_now());
@@ -520,7 +520,7 @@ These are functions for adding time and duration values, and functions for subtr
 time_add(t, d)
 ```
 
-Returns the time t plus the duration d. Use negative d to subtract duration.
+Returns the time t plus the duration d. Use negative d to subtract duration. If the result is outside the range of representable times, it saturates to the maximum (or minimum) time.
 
 You can use the following duration constants:
 
@@ -642,6 +642,8 @@ month
 week
 day
 ```
+
+`week` truncates to the Monday of the ISO week containing t, which may fall in the previous month or year.
 
 ```sql
 with t as (
