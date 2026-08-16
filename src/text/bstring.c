@@ -58,7 +58,7 @@ char bstring_at(ByteString str, size_t idx) {
     if (str.length == 0) {
         return 0;
     }
-    if (idx < 0 || idx >= str.length) {
+    if (idx >= str.length) {
         return 0;
     };
     return str.bytes[idx];
@@ -372,7 +372,7 @@ ByteString bstring_replace(ByteString str, ByteString old, ByteString new, size_
     }
 
     // limit the number of replacements
-    if (max_count >= 0 && count > max_count) {
+    if (count > max_count) {
         count = max_count;
     }
 
@@ -415,7 +415,7 @@ ByteString bstring_replace(ByteString str, ByteString old, ByteString new, size_
 // bstring_replace_all replaces all `old` substrings with the `new` substrings
 // in the original string.
 ByteString bstring_replace_all(ByteString str, ByteString old, ByteString new) {
-    return bstring_replace(str, old, new, -1);
+    return bstring_replace(str, old, new, SIZE_MAX);
 }
 
 // bstring_reverse returns the reversed string.
@@ -435,13 +435,11 @@ ByteString bstring_trim_left(ByteString str) {
     if (str.length == 0) {
         return bstring_new();
     }
-    size_t idx = 0;
-    for (; idx < str.length; idx++) {
-        if (!isspace(str.bytes[idx])) {
-            break;
-        }
+    size_t left = 0;
+    while (left < str.length && isspace((unsigned char)str.bytes[left])) {
+        left++;
     }
-    return bstring_slice(str, idx, str.length);
+    return bstring_slice(str, left, str.length);
 }
 
 // bstring_trim_right trims whitespaces from the end of the string.
@@ -449,13 +447,12 @@ ByteString bstring_trim_right(ByteString str) {
     if (str.length == 0) {
         return bstring_new();
     }
-    size_t idx = str.length - 1;
-    for (; idx >= 0; idx--) {
-        if (!isspace(str.bytes[idx])) {
-            break;
-        }
+    // `right` is the exclusive end index of the trimmed string
+    size_t right = str.length;
+    while (right > 0 && isspace((unsigned char)str.bytes[right - 1])) {
+        right--;
     }
-    return bstring_slice(str, 0, idx + 1);
+    return bstring_slice(str, 0, right);
 }
 
 // bstring_trim trims whitespaces from the beginning and end of the string.
@@ -464,18 +461,15 @@ ByteString bstring_trim(ByteString str) {
         return bstring_new();
     }
     size_t left = 0;
-    for (; left < str.length; left++) {
-        if (!isspace(str.bytes[left])) {
-            break;
-        }
+    while (left < str.length && isspace((unsigned char)str.bytes[left])) {
+        left++;
     }
-    size_t right = str.length - 1;
-    for (; right >= 0; right--) {
-        if (!isspace(str.bytes[right])) {
-            break;
-        }
+    // `right` is the exclusive end index of the trimmed string
+    size_t right = str.length;
+    while (right > left && isspace((unsigned char)str.bytes[right - 1])) {
+        right--;
     }
-    return bstring_slice(str, left, right + 1);
+    return bstring_slice(str, left, right);
 }
 
 // bstring_print prints the string to stdout.

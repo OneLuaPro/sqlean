@@ -59,7 +59,7 @@ int32_t rstring_at(RuneString str, size_t idx) {
     if (str.length == 0) {
         return 0;
     }
-    if (idx < 0 || idx >= str.length) {
+    if (idx >= str.length) {
         return 0;
     };
     return str.runes[idx];
