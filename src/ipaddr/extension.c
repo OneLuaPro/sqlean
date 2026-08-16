@@ -145,7 +145,7 @@ static void ipaddr_ipnetwork(sqlite3_context* context, int argc, sqlite3_value**
             htonl(ntohl(ip->ipv4.s_addr) & ~(uint32_t)((1ULL << (32 - ip->masklen)) - 1));
         inet_ntop(AF_INET, &ip->ipv4, buf, INET_ADDRSTRLEN);
         char* result = sqlite3_malloc(INET_ADDRSTRLEN + 3);
-        sprintf(result, "%s/%u", buf, ip->masklen);
+        snprintf(result, INET_ADDRSTRLEN + 3, "%s/%u", buf, ip->masklen);
         sqlite3_result_text(context, result, -1, sqlite3_free);
     } else if (ip->af == AF_INET6) {
         char buf[INET6_ADDRSTRLEN];
@@ -157,7 +157,7 @@ static void ipaddr_ipnetwork(sqlite3_context* context, int argc, sqlite3_value**
         }
         inet_ntop(AF_INET6, &ip->ipv6, buf, INET6_ADDRSTRLEN);
         char* result = sqlite3_malloc(INET6_ADDRSTRLEN + 4);
-        sprintf(result, "%s/%u", buf, ip->masklen);
+        snprintf(result, INET6_ADDRSTRLEN + 4, "%s/%u", buf, ip->masklen);
         sqlite3_result_text(context, result, -1, sqlite3_free);
     }
     sqlite3_free(ip);

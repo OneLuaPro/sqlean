@@ -16,7 +16,15 @@ COMMON_CFLAGS := -Isrc -DSQLEAN_VERSION=$(SQLEAN_VERSION)
 LINIX_FLAGS := $(CFLAGS) -z now -z relro -Wall -Wsign-compare -Wno-unknown-pragmas -fPIC -shared $(COMMON_CFLAGS)
 WINDO_FLAGS := $(CFLAGS) -shared $(COMMON_CFLAGS)
 MACOS_FLAGS := $(CFLAGS) -Wall -Wsign-compare -fPIC -dynamiclib $(COMMON_CFLAGS)
-CTEST_FLAGS := $(CFLAGS) -Wall -Wsign-compare -Wno-unknown-pragmas -Isrc
+CTEST_FLAGS := $(CFLAGS) -Wall -Wextra -Werror -Wno-unused-parameter -Wno-unknown-pragmas -Isrc
+
+# the sqlite3 shell used by the SQL tests
+SQLITE ?= sqlite3
+
+# address + undefined behavior sanitizers
+SANITIZE_FLAGS := -g -O1 -fno-omit-frame-pointer -fsanitize=address,undefined -fno-sanitize-recover=undefined
+SANITIZE_ENV := ASAN_OPTIONS=detect_leaks=0 UBSAN_OPTIONS=print_stacktrace=1
+SAN_FLAGS := $(CTEST_FLAGS) $(SANITIZE_FLAGS) -fPIC -shared
 
 prepare-dist:
 	mkdir -p dist
@@ -30,6 +38,32 @@ download-sqlite:
 download-external:
 	curl -L --silent https://github.com/mackyle/sqlite/raw/branch-$(SQLITE_BRANCH)/src/test_windirent.h --output src/test_windirent.h
 	curl -L --silent https://github.com/cyan4973/xxhash/raw/v0.8.3/xxhash.h --output src/crypto/xxhash.impl.h
+
+# A sqlite3 shell to load the sanitized extensions into.
+# Rebuilt only when the amalgamation changes (i.e. after download-sqlite).
+dist/sqlite3-sanitize: src/sqlite3.c src/shell.c
+	@mkdir -p dist
+	$(CC) -g -O1 -w -c src/sqlite3.c -o dist/sqlite3.o
+	$(CC) -g -O1 -w -c src/shell.c -o dist/shell.o
+	$(CC) -fsanitize=address,undefined dist/sqlite3.o dist/shell.o -o $@
+	rm -f dist/sqlite3.o dist/shell.o
+
+# Builds the extensions with the sanitizers enabled, plus the shell above.
+compile-sanitize: dist/sqlite3-sanitize
+	$(CC) $(SAN_FLAGS) src/sqlite3-crypto.c src/crypto/*.c -o dist/crypto.so
+	$(CC) $(SAN_FLAGS) src/sqlite3-define.c src/define/*.c -o dist/define.so
+	$(CC) $(SAN_FLAGS) src/sqlite3-fileio.c src/fileio/*.c -o dist/fileio.so
+	$(CC) $(SAN_FLAGS) src/sqlite3-fuzzy.c src/fuzzy/*.c -o dist/fuzzy.so
+	$(CC) $(SAN_FLAGS) src/sqlite3-ipaddr.c src/ipaddr/*.c -o dist/ipaddr.so
+	$(CC) $(SAN_FLAGS) src/sqlite3-math.c src/math/*.c -o dist/math.so -lm
+	$(CC) $(SAN_FLAGS) -include src/regexp/constants.h src/sqlite3-regexp.c src/regexp/*.c src/regexp/pcre2/*.c -o dist/regexp.so
+	$(CC) $(SAN_FLAGS) src/sqlite3-stats.c src/stats/*.c -o dist/stats.so -lm
+	$(CC) $(SAN_FLAGS) src/sqlite3-text.c src/text/*.c src/text/*/*.c -o dist/text.so
+	$(CC) $(SAN_FLAGS) src/sqlite3-time.c src/time/*.c -o dist/time.so
+	$(CC) $(SAN_FLAGS) src/sqlite3-unicode.c src/unicode/*.c -o dist/unicode.so
+	$(CC) $(SAN_FLAGS) src/sqlite3-uuid.c src/uuid/*.c -o dist/uuid.so
+	$(CC) $(SAN_FLAGS) src/sqlite3-vsv.c src/vsv/*.c -o dist/vsv.so -lm
+	$(CC) $(SAN_FLAGS) -include src/regexp/constants.h src/sqlite3-sqlean.c src/crypto/*.c src/define/*.c src/fileio/*.c src/fuzzy/*.c src/ipaddr/*.c src/math/*.c src/regexp/*.c src/regexp/pcre2/*.c src/stats/*.c src/text/*.c src/text/*/*.c src/time/*.c src/unicode/*.c src/uuid/*.c src/vsv/*.c -o dist/sqlean.so -lm
 
 compile-linux:
 	$(CC) -O3 $(LINIX_FLAGS) src/sqlite3-crypto.c src/crypto/*.c -o dist/crypto.so
@@ -191,13 +225,20 @@ test-all:
 	make test suite=vsv
 	make test suite=sqlean
 
+# Runs the SQL tests against a sanitized build. A sanitizer report kills
+# the shell, so the failing suite fails the target.
+test-all-sanitize:
+	$(SANITIZE_ENV) make test-all SQLITE=./dist/sqlite3-sanitize
+
 # fails if grep does find a failed test case
 # https://stackoverflow.com/questions/15367674/bash-one-liner-to-exit-with-the-opposite-status-of-a-grep-command/21788642
 test:
-	@sqlite3 < test/$(suite).sql > test.log
+	@$(SQLITE) < test/$(suite).sql > test.log
 	@cat test.log | (! grep -Ex "[0-9_]+.[^1]")
 
 ctest-all:
+	$(CC) $(CTEST_FLAGS) test/crypto/base85.test.c src/crypto/base85.c -o crypto.base85
+	make ctest package=crypto module=base85
 	$(CC) $(CTEST_FLAGS) test/text/bstring.test.c src/text/*.c src/text/*/*.c -o text.bstring
 	make ctest package=text module=bstring
 	$(CC) $(CTEST_FLAGS) test/text/rstring.test.c src/text/*.c src/text/*/*.c -o text.rstring
@@ -209,7 +250,11 @@ ctest-all:
 	$(CC) $(CTEST_FLAGS) test/time/duration.test.c src/time/*.c -o time.duration -lm
 	make ctest package=time module=duration
 
+# Runs the C tests with the sanitizers enabled.
+ctest-all-sanitize:
+	$(SANITIZE_ENV) make ctest-all CFLAGS="$(SANITIZE_FLAGS)"
+
 ctest:
 	@chmod +x $(package).$(module)
 	@./$(package).$(module)
-	@rm -f $(package).$(module)
+	@rm -rf $(package).$(module) $(package).$(module).dSYM
