@@ -51,24 +51,32 @@ static ssize_t readline(char** lineptr, size_t* n, FILE* stream) {
     if (c == EOF) {
         return -1;
     }
-    if (bufptr == NULL) {
-        bufptr = malloc(128);
-        if (bufptr == NULL) {
+    if (bufptr == NULL || size < 128) {
+        // realloc(NULL, ...) is equivalent to malloc(...)
+        char* new_buf = realloc(bufptr, 128);
+        if (new_buf == NULL) {
+            free(bufptr);
+            *lineptr = NULL;
+            *n = 0;
             return -1;
         }
+        bufptr = new_buf;
         size = 128;
     }
     p = bufptr;
     while (c != EOF) {
         if ((size_t)(p - bufptr) >= size - 1) {
+            size_t offset = p - bufptr;
             size = size + 128;
             char* new_buf = realloc(bufptr, size);
             if (new_buf == NULL) {
                 free(bufptr);
+                *lineptr = NULL;
+                *n = 0;
                 return -1;
             }
-            p = new_buf + (p - bufptr);
             bufptr = new_buf;
+            p = bufptr + offset;
         }
         *p++ = c;
         if (c == '\n') {
@@ -94,6 +102,8 @@ typedef struct {
     FILE* in;
     bool eof;
     char* line;
+    // the size of the `line` buffer, not the length of the line
+    size_t line_size;
     sqlite3_int64 rowid;
 } Cursor;
 
@@ -164,8 +174,7 @@ static int xclose(sqlite3_vtab_cursor* cur) {
 static int xnext(sqlite3_vtab_cursor* cur) {
     Cursor* cursor = (Cursor*)cur;
     cursor->rowid++;
-    size_t bufsize = 0;
-    ssize_t len = readline(&cursor->line, &bufsize, cursor->in);
+    ssize_t len = readline(&cursor->line, &cursor->line_size, cursor->in);
     if (len == -1) {
         cursor->eof = true;
     }
@@ -239,6 +248,7 @@ static int xfilter(sqlite3_vtab_cursor* cur,
     cursor->name = name;
     cursor->eof = false;
     cursor->line = NULL;
+    cursor->line_size = 0;
     cursor->rowid = 0;
 
     cursor->in = fopen(cursor->name, "r");
