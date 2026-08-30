@@ -57,8 +57,7 @@ set(INSTALL_DATAROOTDIR
 
 # --- 1. Versioning & Variables ---
 set(SQLITE_RELEASE_YEAR "2026")
-set(SQLITE_VERSION "3510300") # Version 3.51.3
-# set(SQLITE_BRANCH "3.51")
+set(SQLITE_VERSION "3530400") # Version 3.53.4
 
 # --- 2. SQLEAN_VERSION via Git ---
 find_package(Git)
