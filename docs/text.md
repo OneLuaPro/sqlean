@@ -15,6 +15,7 @@ Regular expression functions are in the separate [regexp](regexp.md) extension.
 [Change case](#change-case) •
 [Other modifications](#other-modifications) •
 [String properties](#string-properties) •
+[Invalid UTF-8](#invalid-utf-8) •
 [Installation and usage](#installation-and-usage)
 
 ## Substrings and slicing
@@ -547,6 +548,45 @@ select text_bitsize('one');
 ```
 
 Postgres-compatible, aliased as `bit_length`.
+
+## Invalid UTF-8
+
+SQLite does not check that a text value is valid UTF-8, so a string may contain arbitrary bytes (for example, after `cast(x'ff' as text)`). Text functions treat such bytes in one of three ways.
+
+Character functions decode each malformed byte sequence as U+FFFD, the Unicode replacement character, one per maximal ill-formed subsequence. The valid characters around it are left alone:
+
+```sql
+select text_length(cast(x'41ff42' as text));
+-- 3
+
+select hex(text_reverse(cast(x'41ff42' as text)));
+-- 42EFBFBD41
+```
+
+This applies to `text_substring`, `text_slice`, `text_left`, `text_right`, `text_index`, `text_last_index`, `text_like`, `text_ltrim`, `text_rtrim`, `text_trim`, `text_lpad`, `text_rpad`, `text_translate`, `text_reverse` and `text_length`.
+
+Byte functions do not decode anything, so invalid bytes pass through unchanged:
+
+```sql
+select hex(text_replace(cast(x'41ff42' as text), 'A', 'Z'));
+-- 5AFF42
+```
+
+This applies to `text_contains`, `text_has_prefix`, `text_has_suffix`, `text_count`, `text_split`, `text_join`, `text_concat`, `text_repeat`, `text_replace`, `text_size` and `text_bitsize`.
+
+Case functions (`text_upper`, `text_lower`, and `text_title`) return the input unchanged if it is not valid UTF-8, since there is nothing sensible to convert:
+
+```sql
+select hex(text_upper(cast(x'41ff42' as text)));
+-- 41FF42
+```
+
+The `text_nocase` collation decodes like the character functions, so different malformed sequences can compare equal — they all become U+FFFD:
+
+```sql
+select 1 where cast(x'e4b8' as text) = cast(x'ff' as text) collate text_nocase;
+-- 1
+```
 
 ## Installation and usage
 

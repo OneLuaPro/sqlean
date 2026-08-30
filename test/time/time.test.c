@@ -4,6 +4,7 @@
 // Time tests.
 
 #include <assert.h>
+#include <limits.h>
 #include <math.h>
 #include <stdbool.h>
 #include <stdint.h>
@@ -82,6 +83,9 @@ static void test_date(void) {
                            test.nsec, test.offset_sec);
         assert(time_to_unix(t) == test.epoch);
     }
+    // Normalizing INT_MIN month must preserve its negative magnitude.
+    assert(time_equal(time_date(2000, INT_MIN, 1, 0, 0, 0, 0, TIMEX_UTC),
+                      time_date(-178954971, April, 1, 0, 0, 0, 0, TIMEX_UTC)));
     printf("OK\n");
 }
 
@@ -247,6 +251,37 @@ static void test_get_yearday(void) {
     printf("OK\n");
 }
 
+// abs_date_full must not misreport March 1 as February 29 in leap years
+// (the leap-day branches must be mutually exclusive).
+static void test_leap_day_boundary(void) {
+    printf("test_leap_day_boundary...");
+    int leap_years[] = {2000, 2004, 2024, 272, 0, -400, 4, 2028};
+    for (size_t i = 0; i < sizeof(leap_years) / sizeof(leap_years[0]); i++) {
+        int y = leap_years[i];
+        Time feb29 = time_date(y, 2, 29, 12, 0, 0, 0, TIMEX_UTC);
+        Time mar01 = time_date(y, 3, 1, 12, 0, 0, 0, TIMEX_UTC);
+        int year, day;
+        enum Month month;
+        time_get_date(feb29, &year, &month, &day);
+        assert(year == y && month == February && day == 29);
+        time_get_date(mar01, &year, &month, &day);
+        assert(year == y && month == March && day == 1);
+        // The two dates must be exactly one day apart.
+        assert(time_sub(mar01, feb29) == 24 * Hour);
+    }
+    // Non-leap years: February 29 normalizes to March 1.
+    int plain_years[] = {2011, 1900, 2100, 1, -1};
+    for (size_t i = 0; i < sizeof(plain_years) / sizeof(plain_years[0]); i++) {
+        int y = plain_years[i];
+        Time t = time_date(y, 2, 29, 12, 0, 0, 0, TIMEX_UTC);
+        int year, day;
+        enum Month month;
+        time_get_date(t, &year, &month, &day);
+        assert(year == y && month == March && day == 1);
+    }
+    printf("OK\n");
+}
+
 #pragma endregion
 
 #pragma region Unix time.
@@ -331,7 +366,10 @@ static void test_to_nano(void) {
     for (size_t i = 0; i < sizeof(unix_tests) / sizeof(unix_tests[0]); i++) {
         TimeTest test = unix_tests[i];
         Time t = time_unix(test.sec, test.nsec);
-        assert(time_to_nano(t) == test.sec * 1000000000 + test.nsec);
+        // Wraparound arithmetic: -11644473600 * 1e9 overflows int64_t,
+        // and time_to_nano is defined to wrap around modulo 2^64.
+        uint64_t want = (uint64_t)test.sec * 1000000000 + (uint64_t)test.nsec;
+        assert((uint64_t)time_to_nano(t) == want);
     }
     printf("OK\n");
 }
@@ -376,6 +414,10 @@ static void test_tm(void) {
         //        time_to_unix(want), time_to_unix(got));
         assert(time_equal(want, got));
     }
+    // Wide intermediates must preserve cancellation across year and month.
+    struct tm extreme = {.tm_year = INT_MAX, .tm_mon = -1900 * 12, .tm_mday = 1};
+    assert(time_equal(time_tm(extreme, TIMEX_UTC),
+                      time_date(INT_MAX, January, 1, 0, 0, 0, 0, TIMEX_UTC)));
     printf("OK\n");
 }
 
@@ -407,78 +449,78 @@ typedef struct {
 
 static CompareTest compare_tests[] = {
     {
-        {2011, 11, 18, 15, 56, 35, 1321631795},
-        {2011, 11, 18, 15, 56, 35, 1321631795},
+        {2011, 11, 18, 15, 56, 35, 1321631795, 0},
+        {2011, 11, 18, 15, 56, 35, 1321631795, 0},
         0,
     },
     {
-        {2011, 11, 18, 15, 56, 35, 0},
-        {2011, 11, 18, 15, 56, 35, 1321631795},
+        {2011, 11, 18, 15, 56, 35, 0, 0},
+        {2011, 11, 18, 15, 56, 35, 1321631795, 0},
         -1,
     },
     {
-        {2011, 11, 18, 15, 56, 35, 1321631795},
-        {2011, 11, 18, 15, 56, 35, 0},
+        {2011, 11, 18, 15, 56, 35, 1321631795, 0},
+        {2011, 11, 18, 15, 56, 35, 0, 0},
         1,
     },
     {
-        {2011, 11, 18, 15, 56, 25, 1321631795},
-        {2011, 11, 18, 15, 56, 35, 1321631795},
+        {2011, 11, 18, 15, 56, 25, 1321631795, 0},
+        {2011, 11, 18, 15, 56, 35, 1321631795, 0},
         -1,
     },
     {
-        {2011, 11, 18, 15, 56, 45, 1321631795},
-        {2011, 11, 18, 15, 56, 35, 1321631795},
+        {2011, 11, 18, 15, 56, 45, 1321631795, 0},
+        {2011, 11, 18, 15, 56, 35, 1321631795, 0},
         1,
     },
     {
-        {2011, 11, 18, 15, 55, 35, 1321631795},
-        {2011, 11, 18, 15, 56, 35, 1321631795},
+        {2011, 11, 18, 15, 55, 35, 1321631795, 0},
+        {2011, 11, 18, 15, 56, 35, 1321631795, 0},
         -1,
     },
     {
-        {2011, 11, 18, 15, 57, 35, 1321631795},
-        {2011, 11, 18, 15, 56, 35, 1321631795},
+        {2011, 11, 18, 15, 57, 35, 1321631795, 0},
+        {2011, 11, 18, 15, 56, 35, 1321631795, 0},
         1,
     },
     {
-        {2011, 11, 18, 14, 56, 35, 1321631795},
-        {2011, 11, 18, 15, 56, 35, 1321631795},
+        {2011, 11, 18, 14, 56, 35, 1321631795, 0},
+        {2011, 11, 18, 15, 56, 35, 1321631795, 0},
         -1,
     },
     {
-        {2011, 11, 18, 16, 56, 35, 1321631795},
-        {2011, 11, 18, 15, 56, 35, 1321631795},
+        {2011, 11, 18, 16, 56, 35, 1321631795, 0},
+        {2011, 11, 18, 15, 56, 35, 1321631795, 0},
         1,
     },
     {
-        {2011, 11, 17, 15, 56, 35, 1321631795},
-        {2011, 11, 18, 15, 56, 35, 1321631795},
+        {2011, 11, 17, 15, 56, 35, 1321631795, 0},
+        {2011, 11, 18, 15, 56, 35, 1321631795, 0},
         -1,
     },
     {
-        {2011, 11, 19, 15, 56, 35, 1321631795},
-        {2011, 11, 18, 15, 56, 35, 1321631795},
+        {2011, 11, 19, 15, 56, 35, 1321631795, 0},
+        {2011, 11, 18, 15, 56, 35, 1321631795, 0},
         1,
     },
     {
-        {2011, 10, 18, 15, 56, 35, 1321631795},
-        {2011, 11, 18, 15, 56, 35, 1321631795},
+        {2011, 10, 18, 15, 56, 35, 1321631795, 0},
+        {2011, 11, 18, 15, 56, 35, 1321631795, 0},
         -1,
     },
     {
-        {2011, 12, 18, 15, 56, 35, 1321631795},
-        {2011, 11, 18, 15, 56, 35, 1321631795},
+        {2011, 12, 18, 15, 56, 35, 1321631795, 0},
+        {2011, 11, 18, 15, 56, 35, 1321631795, 0},
         1,
     },
     {
-        {2010, 11, 18, 15, 56, 35, 1321631795},
-        {2011, 11, 18, 15, 56, 35, 1321631795},
+        {2010, 11, 18, 15, 56, 35, 1321631795, 0},
+        {2011, 11, 18, 15, 56, 35, 1321631795, 0},
         -1,
     },
     {
-        {2012, 11, 18, 15, 56, 35, 1321631795},
-        {2011, 11, 18, 15, 56, 35, 1321631795},
+        {2012, 11, 18, 15, 56, 35, 1321631795, 0},
+        {2011, 11, 18, 15, 56, 35, 1321631795, 0},
         1,
     },
 };
@@ -643,6 +685,8 @@ static void test_add_date(void) {
         Time t = time_add_date(t0, test.years, test.months, test.days);
         assert(time_equal(t, t1));
     }
+    Time extreme = time_date(INT_MAX, January, 1, 0, 0, 0, 0, TIMEX_UTC);
+    assert(time_equal(time_add_date(extreme, 1, -12, 0), extreme));
     printf("OK\n");
 }
 
@@ -658,23 +702,23 @@ typedef struct {
 
 static RoundTest truncate_tests[] = {
     // 1 second
-    {{2011, 11, 18, 15, 56, 35, 777888999}, 1e9, {2011, 11, 18, 15, 56, 35, 0}},
+    {{2011, 11, 18, 15, 56, 35, 777888999, 0}, 1e9, {2011, 11, 18, 15, 56, 35, 0, 0}},
     // 10 seconds
-    {{2011, 11, 18, 15, 56, 35, 0}, 10e9, {2011, 11, 18, 15, 56, 30, 0}},
+    {{2011, 11, 18, 15, 56, 35, 0, 0}, 10e9, {2011, 11, 18, 15, 56, 30, 0, 0}},
     // 30 seconds
-    {{2011, 11, 18, 15, 56, 35, 0}, 30e9, {2011, 11, 18, 15, 56, 30, 0}},
+    {{2011, 11, 18, 15, 56, 35, 0, 0}, 30e9, {2011, 11, 18, 15, 56, 30, 0, 0}},
     // 1 minute
-    {{2011, 11, 18, 15, 56, 35, 0}, 60e9, {2011, 11, 18, 15, 56, 0, 0}},
+    {{2011, 11, 18, 15, 56, 35, 0, 0}, 60e9, {2011, 11, 18, 15, 56, 0, 0, 0}},
     // 5 minutes
-    {{2011, 11, 18, 15, 56, 35, 0}, 5 * 60e9, {2011, 11, 18, 15, 55, 0, 0}},
+    {{2011, 11, 18, 15, 56, 35, 0, 0}, 5 * 60e9, {2011, 11, 18, 15, 55, 0, 0, 0}},
     // 30 minutes
-    {{2011, 11, 18, 15, 56, 35, 0}, 30 * 60e9, {2011, 11, 18, 15, 30, 0, 0}},
+    {{2011, 11, 18, 15, 56, 35, 0, 0}, 30 * 60e9, {2011, 11, 18, 15, 30, 0, 0, 0}},
     // 1 hour
-    {{2011, 11, 18, 15, 56, 35, 0}, 3600e9, {2011, 11, 18, 15, 0, 0, 0}},
+    {{2011, 11, 18, 15, 56, 35, 0, 0}, 3600e9, {2011, 11, 18, 15, 0, 0, 0, 0}},
     // 6 hours
-    {{2011, 11, 18, 15, 56, 35, 0}, 6 * 3600e9, {2011, 11, 18, 12, 0, 0, 0}},
+    {{2011, 11, 18, 15, 56, 35, 0, 0}, 6 * 3600e9, {2011, 11, 18, 12, 0, 0, 0, 0}},
     // 1 day (= 24 hours)
-    {{2011, 11, 18, 15, 56, 35, 0}, 86400e9, {2011, 11, 18, 0, 0, 0, 0}},
+    {{2011, 11, 18, 15, 56, 35, 0, 0}, 86400e9, {2011, 11, 18, 0, 0, 0, 0, 0}},
 };
 
 static void test_truncate(void) {
@@ -694,23 +738,23 @@ static void test_truncate(void) {
 
 static RoundTest round_tests[] = {
     // 1 second
-    {{2011, 11, 18, 15, 56, 35, 777888999}, 1e9, {2011, 11, 18, 15, 56, 36, 0}},
+    {{2011, 11, 18, 15, 56, 35, 777888999, 0}, 1e9, {2011, 11, 18, 15, 56, 36, 0, 0}},
     // 10 seconds
-    {{2011, 11, 18, 15, 56, 35, 0}, 10e9, {2011, 11, 18, 15, 56, 40, 0}},
+    {{2011, 11, 18, 15, 56, 35, 0, 0}, 10e9, {2011, 11, 18, 15, 56, 40, 0, 0}},
     // 30 seconds
-    {{2011, 11, 18, 15, 56, 35, 0}, 30e9, {2011, 11, 18, 15, 56, 30, 0}},
+    {{2011, 11, 18, 15, 56, 35, 0, 0}, 30e9, {2011, 11, 18, 15, 56, 30, 0, 0}},
     // 1 minute
-    {{2011, 11, 18, 15, 56, 35, 0}, 60e9, {2011, 11, 18, 15, 57, 0, 0}},
+    {{2011, 11, 18, 15, 56, 35, 0, 0}, 60e9, {2011, 11, 18, 15, 57, 0, 0, 0}},
     // 5 minutes
-    {{2011, 11, 18, 15, 56, 35, 0}, 5 * 60e9, {2011, 11, 18, 15, 55, 0, 0}},
+    {{2011, 11, 18, 15, 56, 35, 0, 0}, 5 * 60e9, {2011, 11, 18, 15, 55, 0, 0, 0}},
     // 30 minutes
-    {{2011, 11, 18, 15, 56, 35, 0}, 30 * 60e9, {2011, 11, 18, 16, 0, 0, 0}},
+    {{2011, 11, 18, 15, 56, 35, 0, 0}, 30 * 60e9, {2011, 11, 18, 16, 0, 0, 0, 0}},
     // 1 hour
-    {{2011, 11, 18, 15, 56, 35, 0}, 3600e9, {2011, 11, 18, 16, 0, 0, 0}},
+    {{2011, 11, 18, 15, 56, 35, 0, 0}, 3600e9, {2011, 11, 18, 16, 0, 0, 0, 0}},
     // 6 hours
-    {{2011, 11, 18, 15, 56, 35, 0}, 6 * 3600e9, {2011, 11, 18, 18, 0, 0, 0}},
+    {{2011, 11, 18, 15, 56, 35, 0, 0}, 6 * 3600e9, {2011, 11, 18, 18, 0, 0, 0, 0}},
     // 1 day (= 24 hours)
-    {{2011, 11, 18, 15, 56, 35, 0}, 86400e9, {2011, 11, 19, 0, 0, 0, 0}},
+    {{2011, 11, 18, 15, 56, 35, 0, 0}, 86400e9, {2011, 11, 19, 0, 0, 0, 0, 0}},
 };
 
 static void test_round(void) {
@@ -741,6 +785,7 @@ typedef struct {
 FormatTest fmt_iso_tests[] = {
     {2011, 11, 18, 15, 56, 35, 0, "2011-11-18T15:56:35Z", TIMEX_UTC},
     {2011, 11, 18, 15, 56, 35, 666777888, "2011-11-18T15:56:35.666777888Z", TIMEX_UTC},
+    {9999, 12, 31, 23, 59, 59, 0, "9999-12-31T23:59:59Z", TIMEX_UTC},
     {2011, 11, 18, 15, 56, 35, 0, "2011-11-18T20:56:35+05:00", 5 * 3600},
     {2011, 11, 18, 15, 56, 35, 0, "2011-11-18T21:26:35+05:30", 5 * 3600 + 30 * 60},
     {2011, 11, 18, 15, 56, 35, 0, "2011-11-18T10:56:35-05:00", -5 * 3600},
@@ -845,6 +890,119 @@ FormatTest parse_tests[] = {
     {2011, 11, 18, 0, 0, 0, 0, "2011-11-18", TIMEX_UTC},
     {1, 1, 1, 15, 56, 35, 0, "15:56:35", TIMEX_UTC},
     {1, 1, 1, 0, 0, 0, 0, "2011-11-18 10:56", TIMEX_UTC},
+
+    // Fractional seconds are scaled to nanoseconds.
+    {2011, 11, 18, 15, 56, 35, 600000000, "2011-11-18T15:56:35.6Z", TIMEX_UTC},
+    {2011, 11, 18, 15, 56, 35, 660000000, "2011-11-18T15:56:35.66Z", TIMEX_UTC},
+    {2011, 11, 18, 15, 56, 35, 666000000, "2011-11-18T15:56:35.666Z", TIMEX_UTC},
+    {2011, 11, 18, 15, 56, 35, 666700000, "2011-11-18T15:56:35.6667Z", TIMEX_UTC},
+    {2011, 11, 18, 15, 56, 35, 666777000, "2011-11-18T15:56:35.666777Z", TIMEX_UTC},
+    {2011, 11, 18, 15, 56, 35, 666777888, "2011-11-18T15:56:35.666777888Z", TIMEX_UTC},
+    // Digits past the ninth are discarded, not rounded.
+    {2011, 11, 18, 15, 56, 35, 666777888, "2011-11-18T15:56:35.6667778889Z", TIMEX_UTC},
+    // Zero fraction.
+    {2011, 11, 18, 15, 56, 35, 0, "2011-11-18T15:56:35.0000Z", TIMEX_UTC},
+
+    // Independent separator, fraction, and zone forms.
+    {2011, 11, 18, 15, 56, 35, 666777000, "2011-11-18 15:56:35.666777", TIMEX_UTC},
+    // Repeated separator spaces.
+    {2011, 11, 18, 15, 56, 35, 0, "2011-11-18  15:56:35", TIMEX_UTC},
+    {2011, 11, 18, 15, 56, 35, 0, "2011-11-18     15:56:35", TIMEX_UTC},
+    {2011, 11, 18, 15, 56, 35, 666777000, "2011-11-18  15:56:35.666777Z", TIMEX_UTC},
+    {2011, 11, 18, 15, 56, 35, 666777000, "2011-11-18T15:56:35.666777", TIMEX_UTC},
+    {2011, 11, 18, 15, 56, 35, 666777000, "2011-11-18 15:56:35.666777Z", TIMEX_UTC},
+    {2011, 11, 18, 15, 56, 35, 666000000, "2011-11-18 20:56:35.666+05:00", 5 * 3600},
+    {2011, 11, 18, 15, 56, 35, 0, "2011-11-18 20:56:35+05:00", 5 * 3600},
+    {1, 1, 1, 15, 56, 35, 666000000, "15:56:35.666Z", TIMEX_UTC},
+    // Zoned time-only forms.
+    {1, 1, 1, 12, 26, 35, 0, "15:56:35+03:30", TIMEX_UTC},
+    {1, 1, 1, 19, 26, 35, 0, "15:56:35-03:30", TIMEX_UTC},
+    {1, 1, 1, 12, 26, 35, 666000000, "15:56:35.666+03:30", TIMEX_UTC},
+
+    // Boundary values.
+    {9999, 12, 31, 23, 59, 59, 999999999, "9999-12-31T23:59:59.999999999Z", TIMEX_UTC},
+    {0, 1, 1, 0, 0, 0, 0, "0000-01-01T00:00:00Z", TIMEX_UTC},
+    {2011, 1, 1, 0, 0, 0, 0, "2011-01-01T00:00:00Z", TIMEX_UTC},
+    // Signed offsets.
+    {2011, 11, 17, 16, 57, 35, 0, "2011-11-18T16:56:35+23:59", TIMEX_UTC},
+    {2011, 11, 19, 16, 55, 35, 0, "2011-11-18T16:56:35-23:59", TIMEX_UTC},
+    {2011, 11, 18, 16, 56, 35, 0, "2011-11-18T16:56:35+00:00", TIMEX_UTC},
+    {2011, 11, 18, 16, 56, 35, 0, "2011-11-18T16:56:35-00:00", TIMEX_UTC},
+
+    // Out-of-range date and clock fields are normalized by time_date.
+    {2012, 1, 18, 15, 56, 35, 0, "2011-13-18T15:56:35Z", TIMEX_UTC},
+    {2011, 12, 2, 15, 56, 35, 0, "2011-11-32T15:56:35Z", TIMEX_UTC},
+    {2011, 11, 19, 0, 56, 35, 0, "2011-11-18T24:56:35Z", TIMEX_UTC},
+    {2011, 11, 18, 16, 0, 35, 0, "2011-11-18T15:60:35Z", TIMEX_UTC},
+    {2011, 11, 18, 15, 57, 0, 0, "2011-11-18T15:56:60Z", TIMEX_UTC},
+    {2010, 12, 18, 15, 56, 35, 0, "2011-00-18T15:56:35Z", TIMEX_UTC},
+    {2011, 10, 31, 15, 56, 35, 0, "2011-11-00T15:56:35Z", TIMEX_UTC},
+    {2012, 7, 1, 0, 0, 0, 0, "2012-06-30T23:59:60Z", TIMEX_UTC},
+    {2011, 11, 19, 0, 0, 0, 0, "2011-11-18T24:00:00Z", TIMEX_UTC},
+
+    // Out-of-range offsets are normalized.
+    {2011, 11, 17, 15, 56, 35, 0, "2011-11-18T15:56:35+24:00", TIMEX_UTC},
+    {2011, 11, 18, 9, 56, 35, 0, "2011-11-18T15:56:35+05:60", TIMEX_UTC},
+    {2011, 11, 14, 11, 17, 35, 0, "2011-11-18T15:56:35+99:99", TIMEX_UTC},
+
+    // Nonexistent dates are normalized forward.
+    {2011, 3, 2, 0, 0, 0, 0, "2011-02-30", TIMEX_UTC},
+    {2011, 5, 1, 0, 0, 0, 0, "2011-04-31", TIMEX_UTC},
+    {2011, 3, 1, 0, 0, 0, 0, "2011-02-29", TIMEX_UTC},
+    {2012, 2, 29, 0, 0, 0, 0, "2012-02-29", TIMEX_UTC},
+
+    // Invalid forms.
+    // Trailing characters.
+    {1, 1, 1, 0, 0, 0, 0, "2011-11-18T15:56:35.666777888Y", TIMEX_UTC},
+    // Leading characters.
+    {1, 1, 1, 0, 0, 0, 0, " 2011-11-18T15:56:35Z", TIMEX_UTC},
+    {1, 1, 1, 0, 0, 0, 0, "+2011-11-18T15:56:35Z", TIMEX_UTC},
+    // Malformed offsets.
+    {1, 1, 1, 0, 0, 0, 0, "2011-11-18T15:56:35+0500", TIMEX_UTC},
+    {1, 1, 1, 0, 0, 0, 0, "2011-11-18T15:56:35+05", TIMEX_UTC},
+    {1, 1, 1, 0, 0, 0, 0, "2011-11-18T15:56:35+05:xx", TIMEX_UTC},
+    {1, 1, 1, 0, 0, 0, 0, "2011-11-18T15:56:35+05X00", TIMEX_UTC},
+    // Malformed fractions and offsets.
+    {1, 1, 1, 0, 0, 0, 0, "2011-11-18T15:56:35.Z", TIMEX_UTC},
+    {1, 1, 1, 0, 0, 0, 0, "2011-11-18T15:56:35.", TIMEX_UTC},
+    {1, 1, 1, 0, 0, 0, 0, "2011-11-18T15:56:35+05:xx", TIMEX_UTC},
+    {1, 1, 1, 0, 0, 0, 0, "2011-11-18T15:56:35+0500", TIMEX_UTC},
+    {1, 1, 1, 0, 0, 0, 0, "2011-11-18T15:56:35+05", TIMEX_UTC},
+    // Date separators.
+    {1, 1, 1, 0, 0, 0, 0, "2011X11-18T15:56:35Z", TIMEX_UTC},
+    {1, 1, 1, 0, 0, 0, 0, "2011-11X18T15:56:35Z", TIMEX_UTC},
+    {1, 1, 1, 0, 0, 0, 0, "20111118T15:56:35Z", TIMEX_UTC},
+    // Clock separators.
+    {1, 1, 1, 0, 0, 0, 0, "2011-11-18T15X56:35Z", TIMEX_UTC},
+    {1, 1, 1, 0, 0, 0, 0, "2011-11-18T15:56X35Z", TIMEX_UTC},
+    // Non-fixed-width fields and unrecognized separators.
+    {1, 1, 1, 0, 0, 0, 0, "2011-1-8T15:56:35Z", TIMEX_UTC},
+    {1, 1, 1, 0, 0, 0, 0, "2011-11-18X15:56:35Z", TIMEX_UTC},
+    // RFC 3339 section 5.6 allows a lowercase "t" and "z"; both are accepted.
+    {2011, 11, 18, 15, 56, 35, 0, "2011-11-18T15:56:35z", TIMEX_UTC},
+    {2011, 11, 18, 15, 56, 35, 0, "2011-11-18t15:56:35Z", TIMEX_UTC},
+    {2011, 11, 18, 15, 56, 35, 0, "2011-11-18t15:56:35z", TIMEX_UTC},
+    {2011, 11, 18, 15, 56, 35, 666000000, "2011-11-18T15:56:35.666z", TIMEX_UTC},
+    {1, 1, 1, 15, 56, 35, 0, "15:56:35z", TIMEX_UTC},
+
+    // ASCII whitespace separators.
+    {2011, 11, 18, 15, 56, 35, 0, "2011-11-18\t15:56:35", TIMEX_UTC},
+    {2011, 11, 18, 15, 56, 35, 0, "2011-11-18\n15:56:35", TIMEX_UTC},
+    {2011, 11, 18, 15, 56, 35, 0, "2011-11-18\r15:56:35", TIMEX_UTC},
+    {2011, 11, 18, 15, 56, 35, 0, "2011-11-18\v15:56:35", TIMEX_UTC},
+    {2011, 11, 18, 15, 56, 35, 0, "2011-11-18\f15:56:35", TIMEX_UTC},
+
+    // Whitespace is valid only as the date-clock separator.
+    {1, 1, 1, 0, 0, 0, 0, "2011-11-18T20:56:35 +05:00", TIMEX_UTC},
+    {1, 1, 1, 0, 0, 0, 0, "2011-11-18T20:56:35\t+05:00", TIMEX_UTC},
+    {1, 1, 1, 0, 0, 0, 0, "2011-11-18T15:56:35Z ", TIMEX_UTC},
+    {1, 1, 1, 0, 0, 0, 0, "2011-11-18T15:56:35 ", TIMEX_UTC},
+    // A fraction follows seconds, never HH:MM.
+    {1, 1, 1, 0, 0, 0, 0, "15:56.5Z", TIMEX_UTC},
+    {1, 1, 1, 0, 0, 0, 0, "2011-11-18T15:56.5Z", TIMEX_UTC},
+    // Not a date or a time at all.
+    {1, 1, 1, 0, 0, 0, 0, "garbage", TIMEX_UTC},
+    {1, 1, 1, 0, 0, 0, 0, "", TIMEX_UTC},
 };
 
 static void test_parse(void) {
@@ -858,6 +1016,165 @@ static void test_parse(void) {
         //        time_to_unix(got), got.nsec);
         assert(time_equal(got, want));
     }
+    // NULL returns the zero time.
+    {
+        Time zero = time_date(1, 1, 1, 0, 0, 0, 0, TIMEX_UTC);
+        assert(time_equal(time_parse(NULL), zero));
+    }
+    printf("OK\n");
+}
+
+// Roundtrip: formatting then parsing must reproduce in-range times exactly.
+// Wider and negative years print in full but do not parse because the parser
+// accepts exactly four unsigned year digits.
+static void test_fmt_parse_roundtrip(void) {
+    printf("test_fmt_parse_roundtrip...");
+    Time times[] = {
+        time_date(2011, 11, 18, 15, 56, 35, 666777888, TIMEX_UTC),
+        time_date(1, 1, 1, 0, 0, 0, 0, TIMEX_UTC),
+        time_date(9999, 12, 31, 23, 59, 59, 999999999, TIMEX_UTC),
+        time_date(0, 1, 1, 0, 0, 0, 0, TIMEX_UTC),
+        time_date(2000, 2, 29, 12, 0, 0, 1, TIMEX_UTC),
+    };
+    for (size_t i = 0; i < sizeof(times) / sizeof(times[0]); i++) {
+        char buf[64];
+        time_fmt_iso(buf, sizeof(buf), times[i], TIMEX_UTC);
+        Time got = time_parse(buf);
+        assert(time_equal(got, times[i]));
+    }
+    // Years outside [0, 9999] print in full (like Go) and must not parse
+    // back to t, since the parser accepts exactly four year digits.
+    struct {
+        Time t;
+        const char* want;
+    } wide[] = {
+        {time_date(10000, 1, 1, 0, 0, 0, 0, TIMEX_UTC), "10000-01-01T00:00:00Z"},
+        {time_date(10001, 1, 1, 0, 0, 0, 0, TIMEX_UTC), "10001-01-01T00:00:00Z"},
+        {time_date(-1, 6, 15, 12, 30, 0, 0, TIMEX_UTC), "-0001-06-15T12:30:00Z"},
+        {time_date(-20, 7, 10, 0, 0, 0, 0, TIMEX_UTC), "-0020-07-10T00:00:00Z"},
+    };
+    for (size_t i = 0; i < sizeof(wide) / sizeof(wide[0]); i++) {
+        char buf[64];
+        size_t n = time_fmt_iso(buf, sizeof(buf), wide[i].t, TIMEX_UTC);
+        assert(n < TIMEX_FMT_BUF_SIZE);  // fits into the SQL-layer buffer
+        assert(strcmp(buf, wide[i].want) == 0);
+        Time got = time_parse(buf);
+        assert(!time_equal(got, wide[i].t));
+    }
+    // Distinct years must remain distinguishable after formatting.
+    char b1[64], b2[64];
+    time_fmt_iso(b1, sizeof(b1), time_date(9999, 1, 1, 0, 0, 0, 0, TIMEX_UTC), TIMEX_UTC);
+    time_fmt_iso(b2, sizeof(b2), time_date(10000, 1, 1, 0, 0, 0, 0, TIMEX_UTC), TIMEX_UTC);
+    assert(strcmp(b1, b2) != 0);
+    // Extreme blob times: defined output, fits the buffer, no roundtrip.
+    Time extreme[] = {
+        {INT64_MAX, 0},
+        {INT64_MIN, 999999999},
+    };
+    for (size_t i = 0; i < sizeof(extreme) / sizeof(extreme[0]); i++) {
+        char buf[64];
+        size_t n = time_fmt_iso(buf, sizeof(buf), extreme[i], TIMEX_UTC);
+        assert(n < TIMEX_FMT_BUF_SIZE);
+        Time got = time_parse(buf);
+        assert(!time_equal(got, extreme[i]));
+    }
+    printf("OK\n");
+}
+
+// Negative sub-hour offsets must keep their sign (e.g. -30 minutes prints
+// "-00:30", not "+00:30"), and even full-range int offsets must stay within
+// the SQL-layer buffer size.
+static void test_fmt_offset(void) {
+    printf("test_fmt_offset...");
+    Time t = time_unix(0, 0);  // 1970-01-01T00:00:00Z
+    char buf[64];
+    struct {
+        int offset_sec;
+        const char* want;
+    } tests[] = {
+        {0, "1970-01-01T00:00:00Z"},
+        {3600, "1970-01-01T01:00:00+01:00"},
+        {-3600, "1969-12-31T23:00:00-01:00"},
+        {-1800, "1969-12-31T23:30:00-00:30"},
+        {-1799, "1969-12-31T23:30:01-00:29"},
+        // Sub-minute offsets lose the sign, as in Go: the offset prints as
+        // "+00:00" even though the time fields shift by the full offset.
+        {-59, "1969-12-31T23:59:01+00:00"},
+        {59, "1970-01-01T00:00:59+00:00"},
+        {330 * 60, "1970-01-01T05:30:00+05:30"},
+        {-(330 * 60), "1969-12-31T18:30:00-05:30"},
+        {14 * 3600, "1970-01-01T14:00:00+14:00"},
+        {-12 * 3600, "1969-12-31T12:00:00-12:00"},
+    };
+    for (size_t i = 0; i < sizeof(tests) / sizeof(tests[0]); i++) {
+        size_t n = time_fmt_iso(buf, sizeof(buf), t, tests[i].offset_sec);
+        assert(strcmp(buf, tests[i].want) == 0);
+        assert(n == strlen(tests[i].want));
+    }
+    // Full-range offsets: no UB, output fits the SQL-layer buffer.
+    int wild[] = {INT32_MAX, INT32_MIN, 596523 * 3600, -596523 * 3600};
+    for (size_t i = 0; i < sizeof(wild) / sizeof(wild[0]); i++) {
+        size_t n = time_fmt_iso(buf, sizeof(buf), t, wild[i]);
+        assert(n < TIMEX_FMT_BUF_SIZE);
+    }
+    printf("OK\n");
+}
+
+// Extreme time values must be safe to format and inspect.
+static void test_extreme_values(void) {
+    printf("test_extreme_values...");
+    Time extremes[] = {
+        {INT64_MAX, 0}, {INT64_MAX, 999999999}, {INT64_MIN, 0}, {INT64_MIN, 999999999},
+        {0, 0},         {-31622400, 0},  // 0000-01-01
+    };
+    for (size_t i = 0; i < sizeof(extremes) / sizeof(extremes[0]); i++) {
+        Time t = extremes[i];
+        char buf[64];
+        // Must fit the SQL-layer buffer.
+        assert(time_fmt_iso(buf, sizeof(buf), t, TIMEX_UTC) < TIMEX_FMT_BUF_SIZE);
+        assert(time_fmt_iso(buf, sizeof(buf), t, 5497) < TIMEX_FMT_BUF_SIZE);
+        assert(time_fmt_iso(buf, sizeof(buf), t, -4299) < TIMEX_FMT_BUF_SIZE);
+        assert(time_fmt_datetime(buf, sizeof(buf), t, TIMEX_UTC) < TIMEX_FMT_BUF_SIZE);
+        assert(time_fmt_date(buf, sizeof(buf), t, TIMEX_UTC) < TIMEX_FMT_BUF_SIZE);
+        assert(time_fmt_time(buf, sizeof(buf), t, TIMEX_UTC) < TIMEX_FMT_BUF_SIZE);
+        // Getters must not crash.
+        (void)time_get_year(t);
+        (void)time_get_yearday(t);
+        int year, week;
+        time_get_isoweek(t, &year, &week);
+        (void)time_to_milli(t);
+        (void)time_to_micro(t);
+        (void)time_to_nano(t);
+    }
+    // time_div with the minimum possible sec value.
+    Time tmin = {INT64_MIN, 0};
+    (void)time_truncate(tmin, Second);
+    (void)time_truncate(tmin, Hour);
+    (void)time_round(tmin, Second);
+    // time_sub at the extremes clamps to MIN/MAX_DURATION whenever the true
+    // difference does not fit into a Duration. Because time_add saturates, a
+    // wrapped candidate difference cannot reconstruct the input and sneak
+    // past the roundtrip check.
+    Time tmax = {INT64_MAX, 0};
+    Time tzero = {0, 0};
+    assert(time_sub(tmax, tzero) == MAX_DURATION);
+    assert(time_sub(tzero, tmax) == MIN_DURATION);
+    // Adversarial wrap pair: the naive difference wraps to exactly -1ns/+1ns,
+    // but time_add's saturation must make the roundtrip check fail.
+    assert(time_sub((Time){INT64_MAX, 999999999}, (Time){INT64_MIN, 0}) == MAX_DURATION);
+    assert(time_sub((Time){INT64_MIN, 0}, (Time){INT64_MAX, 999999999}) == MIN_DURATION);
+    // time_add saturates at the representable boundaries.
+    assert(
+        time_equal(time_add((Time){INT64_MAX - 5, 0}, 10 * Second), (Time){INT64_MAX, 999999999}));
+    assert(time_equal(time_add((Time){INT64_MIN + 5, 0}, -10 * Second), (Time){INT64_MIN, 0}));
+    assert(time_equal(time_add((Time){INT64_MAX, 999999999}, 1), (Time){INT64_MAX, 999999999}));
+    assert(time_equal(time_add((Time){INT64_MIN, 0}, -1), (Time){INT64_MIN, 0}));
+    // Exact operations reaching INT64_MIN remain in range.
+    assert(time_equal(time_add((Time){INT64_MIN + 1, 0}, -Second), (Time){INT64_MIN, 0}));
+    assert(time_sub((Time){INT64_MIN, 0}, (Time){INT64_MIN + 1, 0}) == -Second);
+    // In-range arithmetic is unaffected by saturation.
+    assert(time_equal(time_add((Time){100, 999999999}, 2 * Second), (Time){102, 999999999}));
+    assert(time_sub((Time){102, 999999999}, (Time){100, 999999999}) == 2 * Second);
     printf("OK\n");
 }
 
@@ -876,6 +1193,32 @@ static void test_marshal_blob(void) {
         // printf("want: {%lld %lld}, got: {%lld %lld}\n", want.sec, want.nsec, got.sec, got.nsec);
         assert(time_equal(got, want));
     }
+
+    // Times before year 1 have negative sec; the blob roundtrip must
+    // reproduce them exactly.
+    Time ancient[] = {
+        time_date(1, 1, 1, 0, 0, 0, 0, TIMEX_UTC),
+        time_date(0, 1, 1, 0, 0, 0, 0, TIMEX_UTC),
+        time_date(-400, 2, 29, 12, 30, 45, 123456789, TIMEX_UTC),
+        time_date(-10000, 12, 31, 23, 59, 59, 999999999, TIMEX_UTC),
+    };
+    for (size_t i = 0; i < sizeof(ancient) / sizeof(ancient[0]); i++) {
+        time_to_blob(ancient[i], buf);
+        Time got = time_blob(buf);
+        assert(time_equal(got, ancient[i]));
+    }
+
+    // Invalid blobs decode to the zero time: unknown version and
+    // out-of-range nanosecond field.
+    Time zero = {0, 0};
+    memset(buf, 0, TIMEX_BLOB_SIZE);  // version 0
+    assert(time_equal(time_blob(buf), zero));
+    memset(buf, 0xff, TIMEX_BLOB_SIZE);
+    buf[0] = 1;  // version 1, nsec = -1
+    assert(time_equal(time_blob(buf), zero));
+    time_to_blob(time_date(2024, 6, 15, 12, 0, 0, 0, TIMEX_UTC), buf);
+    buf[9] = 0x40;  // nsec = 0x40000000 > 999999999
+    assert(time_equal(time_blob(buf), zero));
     printf("OK\n");
 }
 
@@ -889,6 +1232,7 @@ int main(void) {
     test_get_part();
     test_get_isoweek();
     test_get_yearday();
+    test_leap_day_boundary();
 
     // Unix time.
     test_unix();
@@ -923,6 +1267,9 @@ int main(void) {
     test_fmt_date();
     test_fmt_time();
     test_parse();
+    test_fmt_parse_roundtrip();
+    test_fmt_offset();
+    test_extreme_values();
 
     // Marshaling.
     test_marshal_blob();

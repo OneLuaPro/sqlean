@@ -531,10 +531,15 @@ static void trunc_field(sqlite3_context* context, Time t, const char* field) {
         return;
     }
     if (strcmp(field, "week") == 0) {
-        int year, week;
-        time_get_isoweek(t, &year, &week);
-        Time r = time_date(year, January, 1, 0, 0, 0, 0, 0);
-        r = time_add_date(r, 0, 0, (week - 1) * 7);
+        // Truncate to the Monday of the current (ISO) week: Jan 1 of the ISO
+        // year is not necessarily a Monday, so (week - 1) * 7 days from
+        // Jan 1 does not land on week boundaries.
+        int year, day;
+        enum Month month;
+        time_get_date(t, &year, &month, &day);
+        enum Weekday weekday = time_get_weekday(t);
+        int isodow = weekday == Sunday ? 7 : weekday;
+        Time r = time_date(year, month, day - (isodow - 1), 0, 0, 0, 0, TIMEX_UTC);
         result_blob(context, r);
         return;
     }
@@ -688,7 +693,7 @@ static void fn_format(sqlite3_context* context, int argc, sqlite3_value** argv) 
         offset_sec = sqlite3_value_int(argv[1]);
     }
 
-    char buf[36];
+    char buf[TIMEX_FMT_BUF_SIZE];
     size_t (*format)(char* buf, size_t size, Time t, int offset_sec) =
         (size_t(*)(char*, size_t, Time, int))sqlite3_user_data(context);
     format(buf, sizeof(buf), t, offset_sec);
@@ -698,9 +703,18 @@ static void fn_format(sqlite3_context* context, int argc, sqlite3_value** argv) 
 // time_parse(v)
 static void fn_parse(sqlite3_context* context, int argc, sqlite3_value** argv) {
     assert(argc == 1);
+    if (sqlite3_value_type(argv[0]) == SQLITE_NULL) {
+        sqlite3_result_null(context);
+        return;
+    }
     const char* val = (const char*)sqlite3_value_text(argv[0]);
-    Time t = time_parse(val);
-    result_blob(context, t);
+    int nbytes = sqlite3_value_bytes(argv[0]);
+    if (val == NULL || strlen(val) != (size_t)nbytes) {
+        // time_parse accepts NUL-terminated strings, so embedded NUL bytes are invalid.
+        result_blob(context, (Time){0, 0});
+        return;
+    }
+    result_blob(context, time_parse(val));
 }
 
 // dur_h(), dur_m(), dur_s(), dur_ms(), dur_us(), dur_ns()

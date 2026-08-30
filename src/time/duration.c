@@ -9,6 +9,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include <time.h>
+#include "time/common.h"
 #include "time/timex.h"
 
 // Common durations.
@@ -94,12 +95,16 @@ Duration dur_round(Duration d, Duration m) {
     }
     int64_t r = d % m;
 
+    // The candidate sums below are computed in uint64_t: when the true sum
+    // overflows int64_t (as in Go, which wraps around), the wrapped value
+    // fails the d1 </> d comparison, so the result clamps to MIN/MAX_DURATION.
+    // Plain int64_t arithmetic would make the overflow undefined behavior.
     if (d < 0) {
         r = -r;
         if (dless_than_half(r, m)) {
             return d + r;
         }
-        int64_t d1 = d - m + r;
+        int64_t d1 = uint64_to_int64((uint64_t)d - (uint64_t)m + (uint64_t)r);
         if (d1 < d) {
             return d1;
         }
@@ -109,7 +114,7 @@ Duration dur_round(Duration d, Duration m) {
     if (dless_than_half(r, m)) {
         return d - r;
     }
-    int64_t d1 = d + m - r;
+    int64_t d1 = uint64_to_int64((uint64_t)d + (uint64_t)m - (uint64_t)r);
     if (d1 > d) {
         return d1;
     }

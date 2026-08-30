@@ -6,6 +6,8 @@
 #ifndef UTF8_H
 #define UTF8_H
 
+#include <stdbool.h>
+#include <stddef.h>
 #include <stdint.h>
 
 // decode next utf8 codepoint.
@@ -20,32 +22,19 @@ uint32_t utf8_decode(utf8_decode_t* d, const uint32_t byte);
 // and returns the number of bytes written.
 int utf8_encode(char* out, uint32_t c);
 
-// utf8_len returns the number of utf8 codepoints in s.
-size_t utf8_len(const char* s, size_t n);
-
-// utf8_at returns a pointer to the utf8 codepoint at index in s.
-const char* utf8_at(const char* s, size_t n, size_t index);
-// utf8_pos returns the byte position of the utf8 codepoint at index in s.
-size_t utf8_pos(const char* s, size_t n, size_t index);
-
-// utf8_peek returns the utf8 codepoint at the start of s.
-uint32_t utf8_peek(const char* s);
-// utf8_peek_at returns the utf8 codepoint at the index pos from s.
-uint32_t utf8_peek_at(const char* s, size_t n, size_t pos);
+// utf8_next decodes the next codepoint and advances the byte index.
+uint32_t utf8_next(const char* s, size_t n, size_t* i);
 
 // utf8_icmp compares the utf8 strings s1 and s2 case-insensitively.
 int utf8_icmp(const char* s1, size_t n1, const char* s2, size_t n2);
 
-// utf8_valid returns true if s is a valid utf8 string.
-bool utf8_valid(const char* s, size_t n);
-
-// utf8_tolower converts the utf8 string s to lowercase.
-bool utf8_tolower(char* s, size_t n);
-// utf8_toupper converts the utf8 string s to uppercase.
-bool utf8_toupper(char* s, size_t n);
-// utf8_totitle converts the utf8 string s to title-case.
-bool utf8_totitle(char* s, size_t n);
-// utf8_casefold converts the utf8 string s to folded-case.
-bool utf8_casefold(char* s, size_t n);
+// utf8_tolower converts the utf8 string src to lowercase.
+bool utf8_tolower(const char* src, size_t n, char* dst, size_t dstcap, size_t* dstlen);
+// utf8_toupper converts the utf8 string src to uppercase.
+bool utf8_toupper(const char* src, size_t n, char* dst, size_t dstcap, size_t* dstlen);
+// utf8_totitle converts the utf8 string src to title-case.
+bool utf8_totitle(const char* src, size_t n, char* dst, size_t dstcap, size_t* dstlen);
+// utf8_casefold converts the utf8 string src to folded-case.
+bool utf8_casefold(const char* src, size_t n, char* dst, size_t dstcap, size_t* dstlen);
 
 #endif  // UTF8_H

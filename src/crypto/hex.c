@@ -16,7 +16,7 @@ uint8_t* hex_encode(const uint8_t* src, size_t len, size_t* out_len) {
         return NULL;
     }
     for (size_t i = 0; i < len; i++) {
-        sprintf((char*)encoded + (i * 2), "%02x", src[i]);
+        snprintf((char*)encoded + (i * 2), 3, "%02x", src[i]);
     }
     encoded[*out_len] = '\0';
     *out_len = len * 2;

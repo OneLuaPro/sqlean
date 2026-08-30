@@ -186,13 +186,18 @@ select '51_03', time_trunc(time_unix(1321631795, 666777888), 'decade') = time_da
 select '51_04', time_trunc(time_unix(1321631795, 666777888), 'year') = time_date(2011, 1, 1);
 select '51_05', time_trunc(time_unix(1321631795, 666777888), 'quarter') = time_date(2011, 10, 1);
 select '51_06', time_trunc(time_unix(1321631795, 666777888), 'month') = time_date(2011, 11, 1);
-select '51_07', time_trunc(time_unix(1321631795, 666777888), 'week') = time_date(2011, 11, 12);
-select '51_08', time_trunc(time_unix(1321631795, 666777888), 'day') = time_date(2011, 11, 18);
-select '51_09', time_trunc(time_unix(1321631795, 666777888), 'hour') = time_date(2011, 11, 18, 15, 0, 0);
-select '51_10', time_trunc(time_unix(1321631795, 666777888), 'minute') = time_date(2011, 11, 18, 15, 56, 0);
-select '51_11', time_trunc(time_unix(1321631795, 666777888), 'second') = time_date(2011, 11, 18, 15, 56, 35);
-select '51_12', time_trunc(time_unix(1321631795, 666777888), 'milli') = time_date(2011, 11, 18, 15, 56, 35, 666000000);
-select '51_13', time_trunc(time_unix(1321631795, 666777888), 'micro') = time_date(2011, 11, 18, 15, 56, 35, 666777000);
+-- week truncates to the Monday of the current ISO week (2011-11-18 was a Friday)
+select '51_07', time_trunc(time_unix(1321631795, 666777888), 'week') = time_date(2011, 11, 14);
+select '51_08', time_trunc(time_date(2023, 1, 4), 'week') = time_date(2023, 1, 2);
+select '51_09', time_trunc(time_date(2023, 1, 1), 'week') = time_date(2022, 12, 26);
+select '51_10', time_trunc(time_date(2024, 3, 13), 'week') = time_date(2024, 3, 11);
+select '51_11', time_trunc(time_date(2023, 12, 31), 'week') = time_date(2023, 12, 25);
+select '51_12', time_trunc(time_unix(1321631795, 666777888), 'day') = time_date(2011, 11, 18);
+select '51_13', time_trunc(time_unix(1321631795, 666777888), 'hour') = time_date(2011, 11, 18, 15, 0, 0);
+select '51_14', time_trunc(time_unix(1321631795, 666777888), 'minute') = time_date(2011, 11, 18, 15, 56, 0);
+select '51_15', time_trunc(time_unix(1321631795, 666777888), 'second') = time_date(2011, 11, 18, 15, 56, 35);
+select '51_16', time_trunc(time_unix(1321631795, 666777888), 'milli') = time_date(2011, 11, 18, 15, 56, 35, 666000000);
+select '51_17', time_trunc(time_unix(1321631795, 666777888), 'micro') = time_date(2011, 11, 18, 15, 56, 35, 666777000);
 
 -- truncate to custom duration
 -- 2011-11-18 15:56:35.666777888
@@ -222,6 +227,10 @@ select '61_05', time_fmt_iso(time_unix(1321631795, 0)) = '2011-11-18T15:56:35Z';
 select '61_06', time_fmt_iso(time_unix(1321631795, 0), 0) = '2011-11-18T15:56:35Z';
 select '61_07', time_fmt_iso(time_unix(1321631795, 0), 3*3600+30*60) = '2011-11-18T19:26:35+03:30';
 select '61_08', time_fmt_iso(time_unix(1321631795, 0), -3*3600-30*60) = '2011-11-18T12:26:35-03:30';
+-- negative sub-hour offsets must keep their sign
+select '61_09', time_fmt_iso(time_unix(0, 0), -1800) = '1969-12-31T23:30:00-00:30';
+select '61_10', time_fmt_iso(time_unix(0, 0), -1799) = '1969-12-31T23:30:01-00:29';
+select '61_11', time_fmt_iso(time_unix(0, 0), 19800) = '1970-01-01T05:30:00+05:30';
 
 -- time_fmt_datetime
 -- 2011-11-18 15:56:35.666777888
@@ -238,8 +247,8 @@ select '62_08', time_fmt_datetime(time_unix(1321631795, 0), -3*3600-30*60) = '20
 -- 2011-11-18 15:56:35.666777888
 select '63_01', time_fmt_date(time_unix(1321631795, 666777888)) = '2011-11-18';
 select '63_02', time_fmt_date(time_unix(1321631795, 0)) = '2011-11-18';
-select '62_04', time_fmt_date(time_unix(1321631795, 0), 12*3600) = '2011-11-19';
-select '62_05', time_fmt_date(time_unix(1321631795, 0), -12*3600) = '2011-11-18';
+select '63_03', time_fmt_date(time_unix(1321631795, 0), 12*3600) = '2011-11-19';
+select '63_04', time_fmt_date(time_unix(1321631795, 0), -12*3600) = '2011-11-18';
 
 -- time_fmt_time
 -- 2011-11-18 15:56:35.666777888
@@ -259,6 +268,90 @@ select '65_06', time_parse('2011-11-18T12:26:35-03:30') = time_unix(1321631795, 
 select '65_07', time_parse('2011-11-18 15:56:35') = time_unix(1321631795, 0);
 select '65_08', time_parse('2011-11-18') = time_date(2011, 11, 18);
 select '65_09', time_parse('15:56:35') = time_date(1, 1, 1, 15, 56, 35);
+select '65_10', time_parse(null) is null;
+
+-- time_parse: fractional seconds, one to nine digits
+select '66_01', time_parse('2011-11-18T15:56:35.6Z') = time_unix(1321631795, 600000000);
+select '66_02', time_parse('2011-11-18T15:56:35.66Z') = time_unix(1321631795, 660000000);
+select '66_03', time_parse('2011-11-18T15:56:35.666Z') = time_unix(1321631795, 666000000);
+select '66_04', time_parse('2011-11-18T15:56:35.6667Z') = time_unix(1321631795, 666700000);
+select '66_05', time_parse('2011-11-18T15:56:35.666777Z') = time_unix(1321631795, 666777000);
+select '66_06', time_parse('2011-11-18T15:56:35.666777888Z') = time_unix(1321631795, 666777888);
+-- digits past the ninth are discarded
+select '66_07', time_parse('2011-11-18T15:56:35.6667778889Z') = time_unix(1321631795, 666777888);
+-- zero fraction
+select '66_08', time_parse('2011-11-18T15:56:35.0000Z') = time_unix(1321631795, 0);
+select '66_09', time_fmt_iso(time_parse('2011-11-18T15:56:35.0000Z')) = '2011-11-18T15:56:35Z';
+
+-- time_parse: separator, fraction and zone are independent
+select '67_01', time_parse('2011-11-18 15:56:35.666777') = time_unix(1321631795, 666777000);
+select '67_02', time_parse('2011-11-18T15:56:35.666777') = time_unix(1321631795, 666777000);
+select '67_03', time_parse('2011-11-18 15:56:35.666777Z') = time_unix(1321631795, 666777000);
+select '67_04', time_parse('2011-11-18 19:26:35.666+03:30') = time_unix(1321631795, 666000000);
+select '67_05', time_parse('2011-11-18 19:26:35+03:30') = time_unix(1321631795, 0);
+select '67_06', time_parse('15:56:35.666Z') = time_date(1, 1, 1, 15, 56, 35, 666000000);
+-- zoned time-only forms
+select '67_07', time_parse('15:56:35+03:30') = time_date(1, 1, 1, 12, 26, 35);
+select '67_08', time_parse('15:56:35-03:30') = time_date(1, 1, 1, 19, 26, 35);
+
+-- time_parse: unparseable values return the zero time
+select '68_01', time_parse('2011-11-18T15:56:35.666777888Y') = time_date(1, 1, 1);
+select '68_03', time_parse(' 2011-11-18T15:56:35Z') = time_date(1, 1, 1);
+select '68_11', time_parse('2011-11-18T15:56:35.Z') = time_date(1, 1, 1);
+select '68_12', time_parse('2011-11-18T15:56:35+0500') = time_date(1, 1, 1);
+select '68_13', time_parse('2011-1-8T15:56:35Z') = time_date(1, 1, 1);
+select '68_14', time_parse('2011-11-18X15:56:35Z') = time_date(1, 1, 1);
+select '68_15', time_parse('garbage') = time_date(1, 1, 1);
+-- RFC 3339 section 5.6 allows a lowercase 't' and 'z'; both are accepted
+select '68_16', time_parse('2011-11-18t15:56:35Z') = time_unix(1321631795, 0);
+select '68_17', time_parse('2011-11-18T15:56:35z') = time_unix(1321631795, 0);
+
+-- time_parse: boundary values
+select '68_20', time_parse('9999-12-31T23:59:59.999999999Z') = time_date(9999, 12, 31, 23, 59, 59, 999999999);
+select '68_21', time_parse('0000-01-01T00:00:00Z') = time_date(0, 1, 1);
+select '68_22', time_parse('2011-11-18T16:56:35+23:59') = time_date(2011, 11, 17, 16, 57, 35);
+select '68_23', time_parse('2011-11-18T16:56:35-23:59') = time_date(2011, 11, 19, 16, 55, 35);
+-- text with an embedded NUL is unparseable
+select '68_24', time_parse(cast('2011-11-18' || char(0) || 'junk' as text)) = time_date(1, 1, 1);
+
+-- ASCII whitespace separators
+select '68_25', time_parse('2011-11-18  15:56:35') = time_unix(1321631795, 0);
+select '68_26', time_parse('2011-11-18     15:56:35') = time_unix(1321631795, 0);
+select '68_27', time_parse(char(50,48,49,49,45,49,49,45,49,56,9,49,53,58,53,54,58,51,53)) = time_unix(1321631795, 0);
+
+select '72_01', time_parse(char(50,48,49,49,45,49,49,45,49,56,11,49,53,58,53,54,58,51,53)) = time_unix(1321631795, 0);
+select '72_02', time_parse(char(50,48,49,49,45,49,49,45,49,56,12,49,53,58,53,54,58,51,53)) = time_unix(1321631795, 0);
+-- whitespace separates the date from the time and nothing else
+select '72_03', time_parse('2011-11-18T20:56:35' || char(9) || '+05:00') = time_date(1, 1, 1);
+select '72_04', time_parse('2011-11-18T15:56:35 ') = time_date(1, 1, 1);
+-- a fraction follows seconds, never HH:MM
+select '72_05', time_parse('15:56.5Z') = time_date(1, 1, 1);
+select '72_06', time_parse('2011-11-18T15:56.5Z') = time_date(1, 1, 1);
+-- the separators inside the date and the time are required
+select '72_07', time_parse('2011-11X18T15:56:35Z') = time_date(1, 1, 1);
+select '72_08', time_parse('2011-11-18T15:56X35Z') = time_date(1, 1, 1);
+
+-- out-of-range timezone offsets normalize; malformed offsets are rejected
+select '73_01', time_parse('2011-11-18T15:56:35+24:00') = time_date(2011, 11, 17, 15, 56, 35);
+select '73_02', time_parse('2011-11-18T15:56:35+05:60') = time_date(2011, 11, 18, 9, 56, 35);
+select '73_03', time_parse('2011-11-18T15:56:35+0500') = time_date(1, 1, 1);
+select '73_04', time_parse('2011-11-18T15:56:35+05:xx') = time_date(1, 1, 1);
+select '73_05', time_parse('2011-11-18T15:56:35+05X00') = time_date(1, 1, 1);
+
+-- time_parse: out-of-range date and clock fields are normalized, not rejected
+select '70_01', time_parse('2011-13-18T15:56:35Z') = time_date(2012, 1, 18, 15, 56, 35);
+select '70_02', time_parse('2011-11-32T15:56:35Z') = time_date(2011, 12, 2, 15, 56, 35);
+select '70_03', time_parse('2011-11-18T24:00:00Z') = time_date(2011, 11, 19);
+select '70_04', time_parse('2011-11-18T15:60:35Z') = time_date(2011, 11, 18, 16, 0, 35);
+select '70_05', time_parse('2011-11-18T15:56:60Z') = time_date(2011, 11, 18, 15, 57, 0);
+select '70_06', time_parse('2012-06-30T23:59:60Z') = time_date(2012, 7, 1);
+select '70_07', time_parse('2011-00-18T15:56:35Z') = time_date(2010, 12, 18, 15, 56, 35);
+
+-- time_parse: nonexistent dates are normalized forward
+select '69_01', time_parse('2011-02-30') = time_date(2011, 3, 2);
+select '69_02', time_parse('2011-04-31') = time_date(2011, 5, 1);
+select '69_03', time_parse('2011-02-29') = time_date(2011, 3, 1);
+select '69_04', time_parse('2012-02-29') = time_date(2012, 2, 29);
 
 -- duration constants
 select '71_01', dur_ns() = 1;

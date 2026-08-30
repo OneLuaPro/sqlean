@@ -11,6 +11,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <time.h>
+#include "time/common.h"
 #include "time/timex.h"
 
 // Some platforms do not support timespec_get() from time.h.
@@ -91,14 +92,17 @@ static const int days_before[] = {
 //
 //	hi * base + lo == nhi * base + nlo
 //	0 <= nlo < base
-static void norm(int hi, int lo, int base, int* nhi, int* nlo) {
+//
+// The arithmetic is done in int64_t so every combination of int inputs can
+// normalize without overflowing an intermediate value.
+static void norm(int64_t hi, int64_t lo, int64_t base, int64_t* nhi, int64_t* nlo) {
     if (lo < 0) {
-        int n = (-lo - 1) / base + 1;
+        int64_t n = (-lo - 1) / base + 1;
         hi -= n;
         lo += n * base;
     }
     if (lo >= base) {
-        int n = lo / base;
+        int64_t n = lo / base;
         hi += n;
         lo -= n * base;
     }
@@ -109,8 +113,8 @@ static void norm(int hi, int lo, int base, int* nhi, int* nlo) {
 // days_since_epoch takes a year and returns the number of days from
 // the absolute epoch to the start of that year.
 // This is basically (year - zeroYear) * 365, but accounting for leap days.
-static uint64_t days_since_epoch(int year) {
-    uint64_t y = year - absolute_zero_year;
+static uint64_t days_since_epoch(int64_t year) {
+    uint64_t y = (uint64_t)(year - absolute_zero_year);
 
     // Add in days from 400-year cycles.
     uint64_t n = y / 400;
@@ -135,22 +139,35 @@ static uint64_t days_since_epoch(int year) {
 }
 
 // is_leap reports whether the year is a leap year.
-static bool is_leap(int year) {
+static bool is_leap(int64_t year) {
     return year % 4 == 0 && (year % 100 != 0 || year % 400 == 0);
 }
 
+// uint32_to_int32 interprets u modulo 2^32 as a signed 32-bit value, used for
+// calendar years returned through the public int API.
+static int32_t uint32_to_int32(uint32_t u) {
+    if (u <= INT32_MAX) {
+        return (int32_t)u;
+    }
+    return -1 - (int32_t)(UINT32_MAX - u);
+}
+
+// The epoch-offset conversions below are computed in uint64_t on purpose:
+// the results are only meaningful modulo 2^64 (Go computes them in unsigned
+// arithmetic as well), and plain int64_t addition would overflow for extreme
+// time values, which is undefined behavior in C.
 static int64_t unix_sec(Time t) {
-    return t.sec + internal_to_unix;
+    return uint64_to_int64((uint64_t)t.sec + (uint64_t)internal_to_unix);
 }
 
 static Time unix_time(int64_t sec, int32_t nsec) {
-    return (Time){sec + unix_to_internal, nsec};
+    return (Time){uint64_to_int64((uint64_t)sec + (uint64_t)unix_to_internal), nsec};
 }
 
 // abs_time returns the time t as an absolute time, adjusted by the zone offset.
 // It is called when computing a presentation property like Month or Hour.
 static uint64_t abs_time(Time t) {
-    return t.sec + internal_to_absolute;
+    return (uint64_t)t.sec + (uint64_t)internal_to_absolute;
 }
 
 // abs_weekday is like Weekday but operates on an absolute time.
@@ -194,7 +211,9 @@ static void abs_date(uint64_t abs, int* year, int* yday) {
     y += n;
     d -= 365 * n;
 
-    *year = y + absolute_zero_year;
+    // The true calendar year does not fit into int for extreme time values
+    // (roughly beyond year ±2 billion); wrapping mirrors Go's int conversion.
+    *year = uint32_to_int32((uint32_t)((uint64_t)y + (uint64_t)absolute_zero_year));
     *yday = d;
 }
 
@@ -207,9 +226,10 @@ static void abs_date_full(uint64_t abs, int* year, enum Month* month, int* day, 
         if (*day > 31 + 29 - 1) {
             // After leap day; pretend it wasn't there.
             *day -= 1;
-        }
-        if (*day == 31 + 29 - 1) {
-            // Leap day.
+        } else if (*day == 31 + 29 - 1) {
+            // Leap day. The branches must be mutually exclusive: otherwise
+            // March 1 (yday 60) would be decremented to 59 and then
+            // misreported as February 29.
             *month = February;
             *day = 29;
             return;
@@ -254,10 +274,11 @@ static Duration time_div(Time t, Duration d) {
     }
 
     bool neg = false;
-    int64_t sec = t.sec;
+    uint64_t sec = t.sec;
     int64_t nsec = t.nsec;
-    if (sec < 0) {
-        // Operate on absolute value.
+    if (t.sec < 0) {
+        // Operate on absolute value. Unsigned negation also works
+        // for t.sec == INT64_MIN, where -t.sec would overflow.
         neg = true;
         sec = -sec;
         nsec = -nsec;
@@ -268,8 +289,8 @@ static Duration time_div(Time t, Duration d) {
     }
 
     // d is a multiple of 1 second.
-    int64_t d1 = d / Second;
-    Duration r = (sec % d1) * Second + nsec;
+    uint64_t d1 = d / Second;
+    Duration r = (int64_t)((sec % d1) * (uint64_t)Second + (uint64_t)nsec);
 
     if (neg && r != 0) {
         r = d - r;
@@ -321,45 +342,57 @@ Time time_now(void) {
 // For example, October 32 converts to November 1.
 //
 // The time is converted to UTC using offset_sec in seconds east of UTC.
+static Time time_date64(int64_t year,
+                        int64_t month,
+                        int64_t day,
+                        int64_t hour,
+                        int64_t min,
+                        int64_t sec,
+                        int64_t nsec,
+                        int64_t offset_sec) {
+    // Normalize month, overflowing into year.
+    int64_t year64, month64;
+    norm(year, month - 1, 12, &year64, &month64);
+    month = (int)(month64 + 1);
+
+    // Normalize nsec, sec, min, hour, overflowing into day.
+    int64_t day64, hour64, min64, sec64, nsec64;
+    norm(sec, nsec, 1000000000, &sec64, &nsec64);
+    norm(min, sec64, 60, &min64, &sec64);
+    norm(hour, min64, 60, &hour64, &min64);
+    norm(day, hour64, 24, &day64, &hour64);
+
+    // Compute days since the absolute epoch.
+    uint64_t d = days_since_epoch(year64);
+
+    // Add in days before this month.
+    d += days_before[month - 1];
+    if (is_leap(year64) && month >= March) {
+        d++;  // February 29
+    }
+
+    // Add in days before today.
+    d += (uint64_t)(day64 - 1);
+
+    // Add in time elapsed today.
+    uint64_t abs = d * seconds_per_day;
+    abs += (uint64_t)(hour64 * seconds_per_hour + min64 * seconds_per_minute + sec64);
+
+    // Convert to UTC.
+    abs -= offset_sec;
+
+    return (Time){uint64_to_int64(abs + (uint64_t)absolute_to_internal), (int32_t)nsec64};
+}
+
 Time time_date(int year,
-               enum Month month,
+               int month,
                int day,
                int hour,
                int min,
                int sec,
                int nsec,
                int offset_sec) {
-    // Normalize month, overflowing into year.
-    int m = month - 1;
-    norm(year, m, 12, &year, &m);
-    month = m + 1;
-
-    // Normalize nsec, sec, min, hour, overflowing into day.
-    norm(sec, nsec, 1000000000, &sec, &nsec);
-    norm(min, sec, 60, &min, &sec);
-    norm(hour, min, 60, &hour, &min);
-    norm(day, hour, 24, &day, &hour);
-
-    // Compute days since the absolute epoch.
-    uint64_t d = days_since_epoch(year);
-
-    // Add in days before this month.
-    d += days_before[month - 1];
-    if (is_leap(year) && month >= March) {
-        d++;  // February 29
-    }
-
-    // Add in days before today.
-    d += day - 1;
-
-    // Add in time elapsed today.
-    uint64_t abs = d * seconds_per_day;
-    abs += hour * seconds_per_hour + min * seconds_per_minute + sec;
-
-    // Convert to UTC.
-    abs -= offset_sec;
-
-    return (Time){abs + absolute_to_internal, nsec};
+    return time_date64(year, month, day, hour, min, sec, nsec, offset_sec);
 }
 
 #pragma endregion
@@ -483,14 +516,16 @@ void time_get_isoweek(Time t, int* year, int* week) {
 Time time_unix(int64_t sec, int64_t nsec) {
     if (nsec < 0 || nsec >= 1000000000) {
         int64_t n = nsec / 1000000000;
-        sec += n;
+        // Wraparound is intentional (as in Go): unsigned arithmetic keeps
+        // the overflow well-defined for extreme arguments.
+        sec = uint64_to_int64((uint64_t)sec + (uint64_t)n);
         nsec -= n * 1000000000;
         if (nsec < 0) {
             nsec += 1000000000;
-            sec--;
+            sec = uint64_to_int64((uint64_t)sec - 1);
         }
     }
-    return unix_time(sec, nsec);
+    return unix_time(sec, (int32_t)nsec);
 }
 
 // time_milli returns the Time corresponding to the given Unix time,
@@ -521,43 +556,48 @@ int64_t time_to_unix(Time t) {
 }
 
 // time_to_milli returns t as a Unix time, the number of milliseconds elapsed since
-// January 1, 1970 UTC. The result is undefined if the Unix time in
+// January 1, 1970 UTC. The result wraps around modulo 2^64 if the Unix time in
 // milliseconds cannot be represented by an int64 (a date more than 292 million
 // years before or after 1970).
 int64_t time_to_milli(Time t) {
-    return unix_sec(t) * 1000 + t.nsec / 1000000;
+    return uint64_to_int64((uint64_t)unix_sec(t) * 1000 + (uint64_t)(t.nsec / 1000000));
 }
 
 // time_to_micro returns t as a Unix time, the number of microseconds elapsed since
-// January 1, 1970 UTC. The result is undefined if the Unix time in
+// January 1, 1970 UTC. The result wraps around modulo 2^64 if the Unix time in
 // microseconds cannot be represented by an int64 (a date before year -290307 or
 // after year 294246).
 int64_t time_to_micro(Time t) {
-    return unix_sec(t) * 1000000 + t.nsec / 1000;
+    return uint64_to_int64((uint64_t)unix_sec(t) * 1000000 + (uint64_t)(t.nsec / 1000));
 }
 
 // time_to_nano returns t as a Unix time, the number of nanoseconds elapsed
-// since January 1, 1970 UTC. The result is undefined if the Unix time
-// in nanoseconds cannot be represented by an int64 (a date before the year
-// 1678 or after 2262). Note that this means the result of calling UnixNano
-// on the zero Time is undefined.
+// since January 1, 1970 UTC. The result wraps around modulo 2^64 if the Unix
+// time in nanoseconds cannot be represented by an int64 (a date before the year
+// 1678 or after 2262).
 int64_t time_to_nano(Time t) {
-    return unix_sec(t) * 1000000000 + t.nsec;
+    return uint64_to_int64((uint64_t)unix_sec(t) * 1000000000 + (uint64_t)t.nsec);
 }
 
 #pragma endregion
 
 #pragma region Calendar time
 
+// clamp_int narrows v to the int range.
+static int clamp_int(int64_t v) {
+    if (v > INT32_MAX) {
+        return INT32_MAX;
+    }
+    if (v < INT32_MIN) {
+        return INT32_MIN;
+    }
+    return (int)v;
+}
+
 // time_tm returns the Time corresponding to the given calendar time at the given timezone offset.
 Time time_tm(struct tm tm, int offset_sec) {
-    int year = tm.tm_year + 1900;
-    int month = tm.tm_mon + 1;
-    int day = tm.tm_mday;
-    int hour = tm.tm_hour;
-    int min = tm.tm_min;
-    int sec = tm.tm_sec;
-    return time_date(year, month, day, hour, min, sec, 0, offset_sec);
+    return time_date64((int64_t)tm.tm_year + 1900, (int64_t)tm.tm_mon + 1, tm.tm_mday,
+                       tm.tm_hour, tm.tm_min, tm.tm_sec, 0, offset_sec);
 }
 
 // time_to_tm returns t in the given timezone offset as a calendar time.
@@ -568,7 +608,8 @@ struct tm time_to_tm(Time t, int offset_sec) {
     time_get_date(loc_t, &year, &month, &day);
     time_get_clock(loc_t, &hour, &min, &sec);
     struct tm tm = {
-        .tm_year = year - 1900,
+        // Clamped: year - 1900 would overflow int for extreme time values.
+        .tm_year = clamp_int((int64_t)year - 1900),
         .tm_mon = month - 1,
         .tm_mday = day,
         .tm_hour = hour,
@@ -620,7 +661,8 @@ bool time_is_zero(Time t) {
 
 #pragma region Arithmetic
 
-// time_add returns the time t+d.
+// time_add returns the time t+d. If the result is outside the range of
+// representable times, it saturates to the maximum (or minimum) time.
 Time time_add(Time t, Duration d) {
     int64_t dsec = d / Second;
     int64_t nsec = t.nsec + d % 1000000000;
@@ -631,14 +673,32 @@ Time time_add(Time t, Duration d) {
         dsec--;
         nsec += 1e9;
     }
-    return (Time){t.sec + dsec, nsec};
+    // The bounds are checked before adding, so no signed overflow can occur.
+    int64_t sec;
+    if (dsec > 0 && t.sec > INT64_MAX - dsec) {
+        sec = INT64_MAX;
+        nsec = 999999999;
+    } else if (dsec < 0 && t.sec < INT64_MIN - dsec) {
+        sec = INT64_MIN;
+        nsec = 0;
+    } else {
+        sec = t.sec + dsec;
+    }
+    return (Time){sec, (int32_t)nsec};
 }
 
 // time_sub returns the duration t-u. If the result exceeds the maximum (or minimum)
 // value that can be stored in a Duration, the maximum (or minimum) duration
 // will be returned.
 Duration time_sub(Time t, Time u) {
-    int64_t d = (t.sec - u.sec) * Second + (t.nsec - u.nsec);
+    // The candidate difference is computed modulo 2^64 (as in Go): unsigned
+    // arithmetic keeps the overflow well-defined. The roundtrip check then
+    // detects the wrap: because time_add saturates instead of wrapping,
+    // an out-of-range difference cannot reconstruct t, and the result
+    // clamps to MIN/MAX_DURATION.
+    uint64_t sec = (uint64_t)t.sec - (uint64_t)u.sec;
+    int64_t d =
+        uint64_to_int64(sec * (uint64_t)Second + (uint64_t)(int64_t)(t.nsec - u.nsec));
     if (time_equal(time_add(u, d), t)) {
         return d;  // d is correct
     }
@@ -674,7 +734,8 @@ Time time_add_date(Time t, int years, int months, int days) {
     time_get_date(t, &year, &month, &day);
     int hour, min, sec;
     time_get_clock(t, &hour, &min, &sec);
-    return time_date(year + years, month + months, day + days, hour, min, sec, t.nsec, TIMEX_UTC);
+    return time_date64((int64_t)year + years, (int64_t)month + months, (int64_t)day + days, hour,
+                       min, sec, t.nsec, TIMEX_UTC);
 }
 
 #pragma endregion
@@ -709,6 +770,22 @@ Time time_round(Time t, Duration d) {
 
 #pragma region Formatting
 
+// fmt_year renders the year as Go does: a minus sign for negative years,
+// then the magnitude zero-padded to at least four digits, printing all
+// digits for wider years ("%04d" alone renders year -20 as "-020", where
+// Go prints "-0020"). buf must hold at least 12 bytes ('-' plus 10 digits
+// plus NUL, for year == INT32_MIN).
+static const char* fmt_year(char buf[12], int year) {
+    if (year < 0) {
+        // int64_t because -year would overflow int for year == INT32_MIN.
+        unsigned int magnitude = (unsigned int)(-(int64_t)year);
+        snprintf(buf, 12, "-%04u", magnitude);
+    } else {
+        snprintf(buf, 12, "%04d", year);
+    }
+    return buf;
+}
+
 // time_fmt_iso returns an ISO 8601 time string for the given time value.
 // Converts the time value to the given timezone offset before formatting.
 // Chooses the most compact representation:
@@ -722,32 +799,47 @@ size_t time_fmt_iso(char* buf, size_t size, Time t, int offset_sec) {
     const char* layout;
     size_t n = 0;
 
+    char ybuf[12];
     if (offset_sec == 0) {
         time_get_date(t, &year, &month, &day);
         time_get_clock(t, &hour, &min, &sec);
         if (t.nsec == 0) {
-            layout = "%04d-%02d-%02dT%02d:%02d:%02dZ";
-            n = snprintf(buf, size, layout, year, month, day, hour, min, sec);
+            layout = "%s-%02d-%02dT%02d:%02d:%02dZ";
+            n = snprintf(buf, size, layout, fmt_year(ybuf, year), month, day, hour, min, sec);
         } else {
-            layout = "%04d-%02d-%02dT%02d:%02d:%02d.%09dZ";
-            n = snprintf(buf, size, layout, year, month, day, hour, min, sec, t.nsec);
+            layout = "%s-%02d-%02dT%02d:%02d:%02d.%09dZ";
+            n = snprintf(buf, size, layout, fmt_year(ybuf, year), month, day, hour, min, sec,
+                         t.nsec);
         }
     } else {
         Time loc_t = time_add(t, offset_sec * Second);
         time_get_date(loc_t, &year, &month, &day);
         time_get_clock(loc_t, &hour, &min, &sec);
-        int ofhour = offset_sec / 3600;
-        int ofmin = (offset_sec % 3600) / 60;
-        if (ofmin < 0) {
-            ofmin = -ofmin;
+        // Normalize the sign before splitting hours/minutes (as Go does):
+        // otherwise an offset like -30 minutes prints as "+00:30".
+        // int64_t because -offset_sec would overflow int for INT_MIN.
+        char ofsign = '+';
+        int64_t ofsec = offset_sec;
+        if (ofsec < 0) {
+            ofsign = '-';
+            ofsec = -ofsec;
+        }
+        int ofhour = (int)(ofsec / 3600);
+        int ofmin = (int)((ofsec % 3600) / 60);
+        // Go drops the offset sign when the offset is less than a minute:
+        // e.g. -59 seconds formats as "+00:00". The time fields are still
+        // shifted by the full offset.
+        if (ofhour == 0 && ofmin == 0) {
+            ofsign = '+';
         }
         if (loc_t.nsec == 0) {
-            layout = "%04d-%02d-%02dT%02d:%02d:%02d%+03d:%02d";
-            n = snprintf(buf, size, layout, year, month, day, hour, min, sec, ofhour, ofmin);
+            layout = "%s-%02d-%02dT%02d:%02d:%02d%c%02d:%02d";
+            n = snprintf(buf, size, layout, fmt_year(ybuf, year), month, day, hour, min, sec,
+                         ofsign, ofhour, ofmin);
         } else {
-            layout = "%04d-%02d-%02dT%02d:%02d:%02d.%09d%+03d:%02d";
-            n = snprintf(buf, size, layout, year, month, day, hour, min, sec, loc_t.nsec, ofhour,
-                         ofmin);
+            layout = "%s-%02d-%02dT%02d:%02d:%02d.%09d%c%02d:%02d";
+            n = snprintf(buf, size, layout, fmt_year(ybuf, year), month, day, hour, min, sec,
+                         loc_t.nsec, ofsign, ofhour, ofmin);
         }
     }
     return n;
@@ -767,7 +859,9 @@ size_t time_fmt_datetime(char* buf, size_t size, Time t, int offset_sec) {
         time_get_date(loc_t, &year, &month, &day);
         time_get_clock(loc_t, &hour, &min, &sec);
     }
-    return snprintf(buf, size, "%04d-%02d-%02d %02d:%02d:%02d", year, month, day, hour, min, sec);
+    char ybuf[12];
+    return snprintf(buf, size, "%s-%02d-%02d %02d:%02d:%02d", fmt_year(ybuf, year), month, day,
+                    hour, min, sec);
 }
 
 // time_fmt_date returns a date string
@@ -782,7 +876,8 @@ size_t time_fmt_date(char* buf, size_t size, Time t, int offset_sec) {
         Time loc_t = time_add(t, offset_sec * Second);
         time_get_date(loc_t, &year, &month, &day);
     }
-    return snprintf(buf, size, "%04d-%02d-%02d", year, month, day);
+    char ybuf[12];
+    return snprintf(buf, size, "%s-%02d-%02d", fmt_year(ybuf, year), month, day);
 }
 
 // time_fmt_time returns a time string
@@ -799,89 +894,154 @@ size_t time_fmt_time(char* buf, size_t size, Time t, int offset_sec) {
     return snprintf(buf, size, "%02d:%02d:%02d", hour, min, sec);
 }
 
-// time_parse parses a formatted string and returns the time value it represents.
-// Supports a limited set of layouts:
-// - "2006-01-02T15:04:05.999999999+07:00" (ISO 8601 with nanoseconds and timezone)
-// - "2006-01-02T15:04:05.999999999Z" (ISO 8601 with nanoseconds, UTC)
-// - "2006-01-02T15:04:05+07:00" (ISO 8601 with timezone)
-// - "2006-01-02T15:04:05Z" (ISO 8601, UTC)
-// - "2006-01-02 15:04:05" (date and time, UTC)
-// - "2006-01-02" (date only, UTC)
-// - "15:04:05" (time only, UTC)
+// is_space reports whether c is whitespace, matching SQLite's sqlite3Isspace.
+static bool is_space(char c) {
+    return c == ' ' || c == '\t' || c == '\n' || c == '\v' || c == '\f' || c == '\r';
+}
+
+// scan_digits reads exactly n digits.
+// Returns a pointer to the character after the digits, or NULL on failure.
+static const char* scan_digits(const char* p, int n, int* out) {
+    int val = 0;
+    for (int i = 0; i < n; i++) {
+        if (*p < '0' || *p > '9') {
+            return NULL;
+        }
+        val = val * 10 + (*p - '0');
+        p++;
+    }
+    *out = val;
+    return p;
+}
+
+// scan_date reads a date (2006-01-02).
+// Returns a pointer to the character after the date, or NULL on failure.
+static const char* scan_date(const char* p, int* year, int* month, int* day) {
+    p = scan_digits(p, 4, year);
+    if (p == NULL || *p != '-') {
+        return NULL;
+    }
+    p = scan_digits(p + 1, 2, month);
+    if (p == NULL || *p != '-') {
+        return NULL;
+    }
+    return scan_digits(p + 1, 2, day);
+}
+
+// scan_frac reads a fractional second (.999999999) and scales it to nanoseconds.
+// Digits past the ninth are consumed and discarded, as Go's time.Parse does.
+// Returns a pointer to the character after the fraction, or NULL on failure.
+static const char* scan_frac(const char* p, int* nsec) {
+    p++;  // skip the '.'
+    if (*p < '0' || *p > '9') {
+        // a '.' must be followed by at least one digit
+        return NULL;
+    }
+    int val = 0, ndigits = 0;
+    for (; *p >= '0' && *p <= '9'; p++) {
+        if (ndigits < 9) {
+            val = val * 10 + (*p - '0');
+            ndigits++;
+        }
+    }
+    for (; ndigits < 9; ndigits++) {
+        val *= 10;
+    }
+    *nsec = val;
+    return p;
+}
+
+// scan_zone reads a timezone offset (Z or +07:00).
+// Returns a pointer to the character after the offset, or NULL on failure.
+static const char* scan_zone(const char* p, int* offset_sec) {
+    // RFC 3339 permits lowercase "z".
+    if (*p == 'Z' || *p == 'z') {
+        *offset_sec = TIMEX_UTC;
+        return p + 1;
+    }
+    int sign = (*p == '-') ? -1 : 1;
+    int hour, min;
+    p = scan_digits(p + 1, 2, &hour);
+    if (p == NULL || *p != ':') {
+        return NULL;
+    }
+    p = scan_digits(p + 1, 2, &min);
+    if (p == NULL) {
+        return NULL;
+    }
+    *offset_sec = sign * (hour * 3600 + min * 60);
+    return p;
+}
+
+// scan_clock reads a time (15:04:05) with an optional fractional second
+// and an optional timezone offset.
+// Returns a pointer to the character after the time, or NULL on failure.
+static const char* scan_clock(const char* p,
+                              int* hour,
+                              int* min,
+                              int* sec,
+                              int* nsec,
+                              int* offset_sec) {
+    p = scan_digits(p, 2, hour);
+    if (p == NULL || *p != ':') {
+        return NULL;
+    }
+    p = scan_digits(p + 1, 2, min);
+    if (p == NULL || *p != ':') {
+        return NULL;
+    }
+    p = scan_digits(p + 1, 2, sec);
+    if (p == NULL) {
+        return NULL;
+    }
+    if (*p == '.') {
+        p = scan_frac(p, nsec);
+        if (p == NULL) {
+            return NULL;
+        }
+    }
+    if (*p == 'Z' || *p == 'z' || *p == '+' || *p == '-') {
+        p = scan_zone(p, offset_sec);
+        if (p == NULL) {
+            return NULL;
+        }
+    }
+    return p;
+}
+
+// time_parse parses either date [separator clock] or clock, where date is
+// "2006-01-02", separator is "T"/"t" or one or more ASCII whitespace characters,
+// and clock is "15:04:05" with optional fraction and zone ("Z"/"z" or ±07:00).
+// Numeric date, clock, and offset fields have fixed widths but no range checks;
+// time_date normalizes them. Fractions beyond nine digits are truncated.
+// Returns zero time on invalid syntax or NULL; zero time is also a valid result.
 Time time_parse(const char* value) {
     Time zero = {0, 0};
-    size_t len = strlen(value);
-    if (len < 8 || len > 35) {
+    if (value == NULL) {
         return zero;
     }
 
-    int year = 1, month = 1, day = 1, hour = 0, min = 0, sec = 0, nsec = 0, offset_sec = TIMEX_UTC;
-    char tz[7] = "";
+    int year = 1, month = 1, day = 1;
+    int hour = 0, min = 0, sec = 0, nsec = 0, offset_sec = TIMEX_UTC;
 
-    if (len == 35) {
-        // "2006-01-02T15:04:05.999999999+07:00"
-        int n = sscanf(value, "%d-%d-%dT%d:%d:%d.%d%6s", &year, &month, &day, &hour, &min, &sec,
-                       &nsec, tz);
-        if (n != 8) {
-            return zero;
+    const char* p = scan_date(value, &year, &month, &day);
+    if (p != NULL) {
+        if (*p == 'T' || *p == 't') {
+            p = scan_clock(p + 1, &hour, &min, &sec, &nsec, &offset_sec);
+        } else if (is_space(*p)) {
+            while (is_space(*p)) {
+                p++;
+            }
+            p = scan_clock(p, &hour, &min, &sec, &nsec, &offset_sec);
         }
+    } else {
+        p = scan_clock(value, &hour, &min, &sec, &nsec, &offset_sec);
+    }
+    if (p == NULL || *p != '\0') {
+        return zero;
     }
 
-    if (len == 30) {
-        // "2006-01-02T15:04:05.999999999Z"
-        int n =
-            sscanf(value, "%d-%d-%dT%d:%d:%d.%dZ", &year, &month, &day, &hour, &min, &sec, &nsec);
-        if (n != 7) {
-            return zero;
-        }
-    }
-
-    if (len == 25) {
-        // "2006-01-02T15:04:05+07:00"
-        int n = sscanf(value, "%d-%d-%dT%d:%d:%d%6s", &year, &month, &day, &hour, &min, &sec, tz);
-        if (n != 7) {
-            return zero;
-        }
-    }
-
-    if (len == 19 || len == 20) {
-        // "2006-01-02T15:04:05Z"
-        // "2006-01-02 15:04:05"
-        int n = sscanf(value, "%d-%d-%d%*c%d:%d:%d", &year, &month, &day, &hour, &min, &sec);
-        if (n != 6) {
-            return zero;
-        }
-    }
-
-    if (len == 10) {
-        // "2006-01-02"
-        int n = sscanf(value, "%d-%d-%d", &year, &month, &day);
-        if (n != 3) {
-            return zero;
-        }
-    }
-
-    if (len == 8) {
-        // "15:04:05"
-        int n = sscanf(value, "%d:%d:%d", &hour, &min, &sec);
-        if (n != 3) {
-            return zero;
-        }
-    }
-
-    if (tz[0] != '\0') {
-        // Parse timezone offset.
-        // + 0 7 : 0 0
-        // ⁰ ¹ ² ³ ⁴ ⁵
-        // tz[0] is the sign.
-        int sign = (tz[0] == '-') ? -1 : 1;
-        // tz[1] and tz[2] are hours.
-        offset_sec = ((tz[1] - '0') * 10 + (tz[2] - '0')) * 3600 * sign;
-        // tz[4] and tz[5] are minutes.
-        offset_sec += ((tz[4] - '0') * 10 + (tz[5] - '0')) * 60 * sign;
-    }
-
-    return time_date(year, (enum Month)month, day, hour, min, sec, nsec, offset_sec);
+    return time_date(year, month, day, hour, min, sec, nsec, offset_sec);
 }
 
 #pragma endregion
@@ -890,20 +1050,29 @@ Time time_parse(const char* value) {
 
 // time_blob returns the time instant represented by the binary data.
 // The blob must have been created by time_to_blob and be at least 13 bytes long.
+// Blobs with an out-of-range nanosecond field are invalid and decode
+// to the zero time (as Go's Time.UnmarshalBinary rejects them).
 Time time_blob(const uint8_t* buf) {
     const uint8_t version = buf[0];
     if (version != 1) {
         return (Time){0, 0};
     }
 
-    int64_t sec = (int64_t)buf[8] | (int64_t)buf[7] << 8 | (int64_t)buf[6] << 16 |
-                  (int64_t)buf[5] << 24 | (int64_t)buf[4] << 32 | (int64_t)buf[3] << 40 |
-                  (int64_t)buf[2] << 48 | (int64_t)buf[1] << 56;
+    // Assemble in unsigned arithmetic: shifting e.g. 0xff by 56 places is not
+    // representable in int64_t, which would be undefined behavior (reachable
+    // for any time before year 1, where sec is negative).
+    uint64_t sec = (uint64_t)buf[8] | (uint64_t)buf[7] << 8 | (uint64_t)buf[6] << 16 |
+                   (uint64_t)buf[5] << 24 | (uint64_t)buf[4] << 32 | (uint64_t)buf[3] << 40 |
+                   (uint64_t)buf[2] << 48 | (uint64_t)buf[1] << 56;
 
-    int32_t nsec =
-        (int32_t)buf[12] | (int32_t)buf[11] << 8 | (int32_t)buf[10] << 16 | (int32_t)buf[9] << 24;
+    uint32_t nsec = (uint32_t)buf[12] | (uint32_t)buf[11] << 8 | (uint32_t)buf[10] << 16 |
+                    (uint32_t)buf[9] << 24;
 
-    return (Time){sec, nsec};
+    if (nsec > 999999999) {
+        // Invalid blob: the nanosecond field is outside [0, 999999999].
+        return (Time){0, 0};
+    }
+    return (Time){uint64_to_int64(sec), (int32_t)nsec};
 }
 
 // time_to_blob returns the binary representation of the time instant t.
@@ -913,19 +1082,22 @@ Time time_blob(const uint8_t* buf) {
 // 9-12: nanoseconds
 void time_to_blob(Time t, uint8_t* buf) {
     const uint8_t version = 1;
+    // Unsigned shifts: well-defined for negative values of sec.
+    uint64_t sec = t.sec;
+    uint32_t nsec = t.nsec;
     buf[0] = version;
-    buf[1] = t.sec >> 56;  // bytes 1-8: seconds
-    buf[2] = t.sec >> 48;
-    buf[3] = t.sec >> 40;
-    buf[4] = t.sec >> 32;
-    buf[5] = t.sec >> 24;
-    buf[6] = t.sec >> 16;
-    buf[7] = t.sec >> 8;
-    buf[8] = t.sec;
-    buf[9] = t.nsec >> 24;  // bytes 9-12: nanoseconds
-    buf[10] = t.nsec >> 16;
-    buf[11] = t.nsec >> 8;
-    buf[12] = t.nsec;
+    buf[1] = sec >> 56;  // bytes 1-8: seconds
+    buf[2] = sec >> 48;
+    buf[3] = sec >> 40;
+    buf[4] = sec >> 32;
+    buf[5] = sec >> 24;
+    buf[6] = sec >> 16;
+    buf[7] = sec >> 8;
+    buf[8] = sec;
+    buf[9] = nsec >> 24;  // bytes 9-12: nanoseconds
+    buf[10] = nsec >> 16;
+    buf[11] = nsec >> 8;
+    buf[12] = nsec;
 }
 
 #pragma endregion

@@ -23,10 +23,7 @@
 
 // UTF-8 string handling.
 
-#include <ctype.h>
-#include <stdbool.h>
 #include <stdint.h>
-#include <string.h>
 
 #include "text/utf8/rune.h"
 #include "text/utf8/utf8.h"
@@ -88,65 +85,53 @@ int utf8_encode(char* out, uint32_t c) {
 
 // String functions.
 
-// utf8_at returns a pointer to the utf8 codepoint at index in s.
-const char* utf8_at(const char* s, size_t n, size_t index) {
-    while ((index > 0) & (*s != 0) & (n-- != 0)) {
-        index -= (*++s & 0xC0) != 0x80;
+// UTF8_REJECT is the decoder state after a byte that cannot appear in a valid
+// utf8 sequence at that position. The reject state is sticky: feeding the
+// decoder more bytes never gets it out, so a loop waiting for the accept
+// state must treat it as final.
+#define UTF8_REJECT 12
+
+// utf8_next decodes the codepoint starting at byte *i of s, which has n bytes,
+// and advances *i past it. It never reads past the n bytes, and *i always
+// advances, so a loop over utf8_next visits every byte exactly once.
+// An invalid or truncated sequence decodes as U+FFFD, the replacement
+// character, one per maximal ill-formed subpart: the bytes that form a valid
+// prefix collapse into a single U+FFFD, and the byte that broke the sequence
+// is left for the next call, since it may well start a valid one.
+uint32_t utf8_next(const char* s, size_t n, size_t* i) {
+    if (*i >= n) {
+        return 0;
     }
-    return s;
-}
-
-// utf8_pos returns the byte position of the utf8 codepoint at index in s.
-size_t utf8_pos(const char* s, size_t n, size_t index) {
-    return (size_t)(utf8_at(s, n, index) - s);
-}
-
-// utf8_len returns the number of utf8 codepoints in s.
-size_t utf8_len(const char* s, size_t n) {
-    size_t size = 0;
-    while ((n-- != 0) & (*s != 0)) {
-        size += (*++s & 0xC0) != 0x80;
-    }
-    return size;
-}
-
-// utf8_peek returns the utf8 codepoint at the start of s.
-uint32_t utf8_peek(const char* s) {
+    const size_t start = *i;
     utf8_decode_t d = {.state = 0};
+    uint32_t state;
     do {
-        utf8_decode(&d, (uint8_t)*s++);
-    } while (d.state);
-    return d.codep;
-}
-
-// utf8_peek_at returns the utf8 codepoint at the index pos from s.
-uint32_t utf8_peek_at(const char* s, size_t n, size_t pos) {
-    return utf8_peek(utf8_at(s, n, pos));
+        state = utf8_decode(&d, (uint8_t)s[(*i)++]);
+    } while (state != 0 && state != UTF8_REJECT && *i < n);
+    if (state == 0) {
+        return d.codep;
+    }
+    if (state == UTF8_REJECT && *i - start > 1) {
+        // the last byte broke a sequence it was never part of:
+        // give it back so the next call can try it as a sequence start
+        (*i)--;
+    }
+    return 0xFFFD;
 }
 
 // utf8_icmp compares the utf8 strings s1 and s2 case-insensitively.
 int utf8_icmp(const char* s1, size_t n1, const char* s2, size_t n2) {
-    utf8_decode_t d1 = {.state = 0}, d2 = {.state = 0};
     size_t j1 = 0, j2 = 0;
     while ((j1 < n1) & (j2 < n2)) {
-        do {
-            utf8_decode(&d1, (uint8_t)s1[j1++]);
-        } while (d1.state);
-        do {
-            utf8_decode(&d2, (uint8_t)s2[j2++]);
-        } while (d2.state);
-        int32_t c = (int32_t)rune_casefold(d1.codep) - (int32_t)rune_casefold(d2.codep);
+        uint32_t c1 = utf8_next(s1, n1, &j1);
+        uint32_t c2 = utf8_next(s2, n2, &j2);
+        int32_t c = (int32_t)rune_casefold(c1) - (int32_t)rune_casefold(c2);
         if (c || !s2[j2 - 1])  // OK if n1 and n2 are npos
             return (int)c;
     }
-    return (int)(n1 - n2);
-}
-
-// utf8_valid returns true if s is a valid utf8 string.
-bool utf8_valid(const char* s, size_t n) {
-    utf8_decode_t d = {.state = 0};
-    while ((n-- != 0) & (*s != 0)) {
-        utf8_decode(&d, (uint8_t)*s++);
-    }
-    return d.state == 0;
+    // the string whose codepoints ran out first is the smaller one.
+    // byte lengths cannot decide this: a casefold may change the encoded
+    // width (ſ is two bytes but folds to the one-byte s), so equal decoded
+    // streams can have unequal byte lengths
+    return (j1 < n1) - (j2 < n2);
 }
