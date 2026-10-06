@@ -183,20 +183,30 @@ add_library(sqlean STATIC
   ${ALL_SRC}                           # Include all modules
 )
 
+# --- 7b. The SQLite command line shell (sqlite3.exe) ---
+# Build prerequisite of PROJ, which builds proj.db with the sqlite3 tool.
+# shell.c is part of the SQLite amalgamation. The SQLite engine itself comes from
+# sqlean.lib, so the shell has the same version and the same compile options as
+# the library (add_definitions() above applies to every target of this directory).
+add_executable(sqlite3_shell "${SQLITE_DIR}/shell.c")
+set_target_properties(sqlite3_shell PROPERTIES OUTPUT_NAME sqlite3)
+target_link_libraries(sqlite3_shell PRIVATE sqlean)
+
 # MSVC Forced Include for PCRE2 constants
 target_compile_options(sqlean PRIVATE "/FI${CMAKE_CURRENT_SOURCE_DIR}/src/regexp/constants.h")
 
 # --- 8. Install Target ---
 # Install the static library (.lib)
 install(TARGETS sqlean
-    ARCHIVE DESTINATION lib
+  ARCHIVE DESTINATION lib
 )
 # Install necessary headers for development
 install(FILES 
-    "${GENERATED_INCLUDE_DIR}/sqlite3.h"
-    "${GENERATED_INCLUDE_DIR}/sqlite3ext.h"    
-    DESTINATION include
+  "${GENERATED_INCLUDE_DIR}/sqlite3.h"
+  "${GENERATED_INCLUDE_DIR}/sqlite3ext.h"
+  DESTINATION include
 )
+install(TARGETS sqlite3_shell RUNTIME DESTINATION bin)
 # Optional: Install sqlean specific entry point header if you created one
 # install(FILES "${CMAKE_CURRENT_SOURCE_DIR}/src/sqlite3-sqlean.h" DESTINATION include)
 
