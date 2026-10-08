@@ -228,8 +228,18 @@ write_basic_package_version_file(
   VERSION ${_sqlite_major}.${_sqlite_minor}.${_sqlite_patch}
   COMPATIBILITY SameMajorVersion
 )
-file(WRITE "${CMAKE_BINARY_DIR}/sqlean-config.cmake"
-  "include(\"\${CMAKE_CURRENT_LIST_DIR}/sqlean-targets.cmake\")\n")
+file(WRITE "${CMAKE_BINARY_DIR}/sqlean-config.cmake" [=[
+include("${CMAKE_CURRENT_LIST_DIR}/sqlean-targets.cmake")
+
+# sqlean bundles SQLite itself. Offer the target name that GDAL's exported link
+# interface uses (GDAL's own config does not look for SQLite3).
+if(NOT TARGET SQLite3::SQLite3)
+  add_library(SQLite3::SQLite3 INTERFACE IMPORTED)
+  set_target_properties(SQLite3::SQLite3 PROPERTIES
+    INTERFACE_LINK_LIBRARIES sqlean::sqlean)
+endif()
+]=])
+
 install(FILES
   "${CMAKE_BINARY_DIR}/sqlean-config.cmake"
   "${CMAKE_BINARY_DIR}/sqlean-config-version.cmake"
