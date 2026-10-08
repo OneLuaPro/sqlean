@@ -182,6 +182,7 @@ add_library(sqlean STATIC
   src/sqlite3-sqlean.c                 # Include sqlean entry point
   ${ALL_SRC}                           # Include all modules
 )
+target_include_directories(sqlean INTERFACE $<INSTALL_INTERFACE:include>)
 
 # --- 7b. The SQLite command line shell (sqlite3.exe) ---
 # Build prerequisite of PROJ, which builds proj.db with the sqlite3 tool.
@@ -198,6 +199,7 @@ target_compile_options(sqlean PRIVATE "/FI${CMAKE_CURRENT_SOURCE_DIR}/src/regexp
 # --- 8. Install Target ---
 # Install the static library (.lib)
 install(TARGETS sqlean
+  EXPORT sqlean-targets
   ARCHIVE DESTINATION lib
 )
 # Install necessary headers for development
@@ -209,6 +211,30 @@ install(FILES
 install(TARGETS sqlite3_shell RUNTIME DESTINATION bin)
 # Optional: Install sqlean specific entry point header if you created one
 # install(FILES "${CMAKE_CURRENT_SOURCE_DIR}/src/sqlite3-sqlean.h" DESTINATION include)
+
+# CMake package so that other projects can use find_package(sqlean CONFIG)
+install(EXPORT sqlean-targets
+  FILE sqlean-targets.cmake
+  NAMESPACE sqlean::
+  DESTINATION lib/cmake/sqlean
+)
+# SQLITE_VERSION is Mmmpp00, e.g. 3530400 for 3.53.4
+math(EXPR _sqlite_major "${SQLITE_VERSION} / 1000000")
+math(EXPR _sqlite_minor "(${SQLITE_VERSION} / 10000) % 100")
+math(EXPR _sqlite_patch "(${SQLITE_VERSION} / 100) % 100")
+include(CMakePackageConfigHelpers)
+write_basic_package_version_file(
+  "${CMAKE_BINARY_DIR}/sqlean-config-version.cmake"
+  VERSION ${_sqlite_major}.${_sqlite_minor}.${_sqlite_patch}
+  COMPATIBILITY SameMajorVersion
+)
+file(WRITE "${CMAKE_BINARY_DIR}/sqlean-config.cmake"
+  "include(\"\${CMAKE_CURRENT_LIST_DIR}/sqlean-targets.cmake\")\n")
+install(FILES
+  "${CMAKE_BINARY_DIR}/sqlean-config.cmake"
+  "${CMAKE_BINARY_DIR}/sqlean-config-version.cmake"
+  DESTINATION lib/cmake/sqlean
+)
 
 # --- 9. Documentation Build Target (Pandoc) ---
 find_program(PANDOC_EXECUTABLE pandoc DOC "Path to pandoc executable")
