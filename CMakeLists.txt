@@ -63,7 +63,8 @@ set(SQLITE_VERSION "3530400") # Version 3.53.4
 find_package(Git)
 if(Git_FOUND)
   execute_process(
-    COMMAND ${GIT_EXECUTABLE} tag --points-at HEAD
+    COMMAND ${GIT_EXECUTABLE} describe --tags --exact-match
+    WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
     OUTPUT_VARIABLE GIT_TAG
     OUTPUT_STRIP_TRAILING_WHITESPACE
   )
